@@ -1,0 +1,45 @@
+# ── Never commit copyrighted game material ──────────────────────────────
+*.iso
+*.ISO
+*.bin
+*.cue
+*.mds
+*.mdf
+*.hog
+*.HOG
+*.exe
+*.dll
+*.bik
+*.tga
+*.spr
+*.shp
+*.fat
+*.mp3
+*.wav
+*.agg
+*.grp
+*.zip
+*.7z
+*.rar
+*.cab
+
+# Local working dirs (game installs, disc images, extracted assets)
+/game/
+/original/
+/disc/
+/assets/
+/extracted/
+
+# Build / scratch
+/build/
+/dist/
+__pycache__/
+*.pyc
+*.pyo
+
+# OS / editor
+Thumbs.db
+.DS_Store
+*.swp
+.vscode/
+.idea/
