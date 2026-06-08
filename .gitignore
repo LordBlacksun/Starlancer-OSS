@@ -43,3 +43,6 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
+
+# Local working log (private — not part of the published project)
+PROJECT-LOG.md
