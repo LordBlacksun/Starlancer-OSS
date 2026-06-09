@@ -57,7 +57,7 @@ Carrier = the home/allied carrier(s) named in the mission; "targets" = the disti
 |--:|--|--:|--:|--|--|
 | 1 | 1 | 118 | 23 | Reliant | 45th, mammoth, prowlers, lueneburg |
 | 2 | 2 | 299 | 39 | Reliant | 45th, Kestrel mammoths, pumas |
-| 3 | 3 | 283 | 36 | Yamato* | 45th, Breman, Vampires, cargo ship *(names Yamato, not Reliant; see §4 — `mission311` near‑dup)* |
+| 3 | 3¹ | 283 | 36 | Reliant² | **destroy the experimental Coalition warp gate** (`PROTOGATE`); escape through it as it detonates — or refuse (§"warp gate"). ¹slot 3 loads `mission311`; ²names Yamato as an ally |
 | 4 | 4 | 276 | 43 | Reliant | 45th, Condor, Sierra, the Mammoth |
 | 5 | 5 | 279 | 34 | Reliant | 45th, stiffs, mammoth, convoy |
 | 6 | 6 | 302 | 35 | Reliant | 45th, Ulysses + Ulysses convoy, Kamov |
@@ -90,14 +90,35 @@ cutscene). End‑game/credits = mission **29**.
 
 - **Slot 25 → `mission251.dte`** on replay: when `DAT_00562DC8 == 0x19` and the replay flag
   `DAT_00587CDC == 1`, the loader swaps in `mission251.dte` (line 86341). **[verified]**
-- **Slot 3 → `mission311.dte`** at one load path (line 86343‑86344, unconditional on slot 3).
-  `mission3.dte` and `mission311.dte` are near‑identical — **one is an alternate/leftover; which is
-  canonical in the normal flow is open.** **[verified load line; inferred which wins]**
+- **Slot 3 → `mission311.dte`** (line 86343, unconditional) — so **`mission311.dte` is the shipped
+  mission 3** and **`mission3.dte` is a superseded earlier cut** (both are the warp‑gate mission, see
+  below). **[verified load line; cut inferred]**
 - **`mission191` / `mission271`** match `mission19` / `mission27` by content (identical flight‑group
   signatures); they are almost certainly the same kind of variant, but their exact load condition is
   not yet pinned. **[inferred]**
 - **Never loaded (unused):** files **12, 13, 17, 22** don't exist; **`mission3.dte`** appears
   superseded by `mission311.dte`. Good candidates for an *Unused Content* writeup. **[verified gaps]**
+
+## 4b. Campaign state — the prototype warp gate  [verified content + player account]
+
+**Mission 3** tasks you with destroying the **Coalition experimental warp gate** (`PROTOGATE` /
+`coal_prototypegate` / `Protogate Core`). You escape *through* the gate as it detonates
+(`Chase you through gate`; *"Stiener: Warp gate destroyed, but I lost the rookie!"*) — or you can
+**refuse**, flying back through it instead of destroying it.
+
+The outcome is **carried forward as campaign state**: if the gate survives, later missions spawn
+extra **"gatecrasher" / warp‑attack** raids to punish the player. Confirmed in the decoded scripts:
+
+- **Game 10** (`mission10`): *"…we've got **gatecrashers**! And they're hungry for blood!"* and
+  *"…take out those **gatecrashers**!"* (Nanny 3 dialogue).
+- **Game 12** (`mission14`): a script block named **`(F)Warp attack`** / `(F)2nd part of warp attack
+  function`.
+- (Game 13's warp strings are routine warp‑*travel*, not the raid.)
+
+This is the clearest case of the persistent‑consequence design: the surviving‑gate state is a
+campaign global the later missions read. `mission3.dte` vs `mission311.dte` are two cuts of this
+mission (`311` ships). *(Mechanic from the player's account; the `PROTOGATE`/`gatecrasher`/`Warp
+attack` strings are [verified] in the decoded `.dte`.)*
 
 ## 5. Tables for future work  [verified addresses]
 
