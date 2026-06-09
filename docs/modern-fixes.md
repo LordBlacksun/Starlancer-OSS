@@ -20,24 +20,29 @@ patch) · **WRAP** (external DLL wrapper/tool).
 
 ## 1. Skip the boot/intro movies (`blank.bik`)  · DATA · *our-RE-backed*
 
-**Issue.** The Warthog / Digital Anvil / Microsoft logos and intro play at every launch and can
-hang or fail on modern setups.
+**Issue.** The three startup **branding logos** — Warthog, Digital Anvil, Microsoft Game Studios —
+play at every launch and can hang or fail on modern setups.
 
-**What the engine does (verified).** The boot dispatcher `FUN_004ABDE0` opens its movies **from
-the CD HOG** (`_BinkOpen(resource, 0x800000)` — *not* loose files), in order:
-`warty_.bik`, `new_dalogo_fs_uncmpr.bik`, `new_nms.bik`, `splash to mm.bik`, then `new_intro.bik`.
-The shared play loop (`0x004AC510`) tolerates a **missing or zero-frame** movie — `BinkOpen`
-returns NULL (logged, non-fatal) or the end flag trips on frame 0 — so it simply moves on. Every
-frame also polls input, so **any keypress already aborts a playing movie**.
+**What the engine does (verified).** The startup clips are a consecutive group in the string table:
+`warty_.bik` (**Warthog**), `new_dalogo_fs_uncmpr.bik` (**Digital Anvil**), `new_nms.bik`
+(**Microsoft Game Studios**), then the splash→main-menu transition `splash to mm.bik`; the campaign
+intro is `new_intro.bik`. They open **from the CD HOG** (`BinkOpen(resource, 0x800000)` — *not* loose
+files). The shared play loop (`0x004AC510`) tolerates a **missing or zero-frame** movie — `BinkOpen`
+returns NULL (logged, non-fatal) or the end flag trips on frame 0 — so the engine simply moves on;
+every frame also polls input, so **any keypress already aborts** a playing clip. *(The logo↔name
+mapping is by static inference — `warty_`=Warthog, `new_dalogo`="da logo"=Digital Anvil, `new_nms`=
+the only remaining startup logo=Microsoft Game Studios; no other `.bik` is microsoft-named.
+`FUN_004ABDE0` is the related per-**chapter** intro/landing sequencer, not the logo player.)*
 
 **Method.** Because the movies live in the HOG, blank them *in the archive* (a loose drop-in won't
-override the resource path). Our tool does it with a version-matched zero-frame Bink and verifies
-the archive round-trips byte-for-byte except the swapped clips:
+override the resource path). The tool blanks **only the three startup logos by default** — the
+splash and intro are left intact unless you ask for them — using a version-matched zero-frame Bink,
+and verifies the archive round-trips byte-for-byte except the swapped clips:
 
 ```sh
-python tools/blank_boot_videos.py list  CD1.HOG                 # see which boot movies are inside
-python tools/blank_boot_videos.py blank CD1.HOG -o CD1_noboot.hog          # blank the 4 logos/splash
-python tools/blank_boot_videos.py blank CD1.HOG -o CD1_noboot.hog --include-intro   # + new_intro.bik
+python tools/blank_boot_videos.py list  CD1.HOG                       # show the startup clips + roles
+python tools/blank_boot_videos.py blank CD1.HOG -o CD1_nologo.hog     # blank the 3 logos only (default)
+python tools/blank_boot_videos.py blank CD1.HOG -o CD1_nologo.hog --include-splash --include-intro
 ```
 
 Place the new HOG in your install (keep the original). If a clip misbehaves with the generated

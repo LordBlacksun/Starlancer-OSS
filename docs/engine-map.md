@@ -89,7 +89,7 @@ Imports 11 `binkw32` entries (`BinkOpen`, `BinkDoFrame`, `BinkWait`, `BinkNextFr
 
 | Addr | Role | Evidence |
 |---|---|---|
-| `0x004ABDE0` | **Boot/intro dispatcher** (per-chapter opener) | branches on chapter `DAT_00562DC8`; opens the boot movies (below) |
+| `0x004ABDE0` | **Per-chapter intro/landing sequencer** | branches on chapter `DAT_00562DC8`; plays `new_chapter*` / landing clips (*not* the startup logos) |
 | `0x004ABD40` | Habitat-selector / intro transition | calls `FUN_0042FE00` with 6 habitat clips → `FUN_004ABB80` |
 | `0x004ABB80`, `0x004AB9D0` | Player, **from HOG** (clear / no-clear) | `_BinkOpen(*(DAT_005202D4+4), 0x800000)` — resource flag |
 | `0x004AB850`, `0x004AB6E0` | Player, **loose file** (clear / no-clear) | `_BinkOpen(name, 0x1000/0)` |
@@ -99,13 +99,14 @@ Imports 11 `binkw32` entries (`BinkOpen`, `BinkDoFrame`, `BinkWait`, `BinkNextFr
 | `0x0043BA40` | In-world TV / news screens | `news report resource …`, `b_tv_news.bik` |
 | `0x0048D030` | HUD movie (cockpit video) | `hudmovie init: load failed …` |
 
-**Boot movies** (opened from `CD1.HOG`/`CD2.HOG` via flag `0x800000`, *not* loose files):
-`warty_.bik` (Warthog), `new_dalogo_fs_uncmpr.bik` (Digital Anvil), `new_nms.bik`,
-`splash to mm.bik`, then `new_intro.bik` + per-chapter intro/landing clips. **A missing or
-zero-frame movie is tolerated** — `BinkOpen` returns NULL (logged, *not* fatal) or the
-end-of-video flag is set on frame 0, so the play loop exits immediately. This is why the
-"blank.bik" boot-skip works; `tools/blank_boot_videos.py` automates it (extract → version-matched
-blank → repack). See [`modern-fixes.md`](modern-fixes.md).
+**Startup branding logos** — a consecutive string-table group at `0x50A2E8`, opened from the CD
+HOG (flag `0x800000`, *not* loose files) at process start: `warty_.bik` (**Warthog**),
+`new_dalogo_fs_uncmpr.bik` (**Digital Anvil**), `new_nms.bik` (**Microsoft Game Studios**), then the
+`splash to mm.bik` transition; the campaign intro is `new_intro.bik`. **A missing or zero-frame
+movie is tolerated** — `BinkOpen` returns NULL (logged, *not* fatal) or the end-of-video flag is set
+on frame 0, so the play loop exits immediately; any keypress aborts too. This is why the "blank.bik"
+skip works; `tools/blank_boot_videos.py` blanks the **three logos by default** (splash + intro
+opt-in) via extract → version-matched blank → repack. See [`modern-fixes.md`](modern-fixes.md).
 
 ## 7. Input — DirectInput + force feedback
 

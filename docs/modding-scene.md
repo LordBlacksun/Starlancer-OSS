@@ -22,7 +22,7 @@ Clean/NoCD exe (or test **SafeDiscShim**) + **dgVoodoo2** (DLLs from its `MS\x86
 **Bug-fix patches (PCGamingWiki community files)**
 - **Starlancer Crash Fix v1.0.1** — fixes medal-case crash + forces single-core affinity (orig by Teleguy, hosted by Choum). https://community.pcgamingwiki.com/files/file/1952-starlancer-crash-fix/
 - **Starlancer DSound Fix** — DirectSound3D/EAX via Creative ALchemy / DSOAL. https://community.pcgamingwiki.com/files/file/1440-starlancer-dsound-fix/
-- **Blank intro videos** (esc0rtd3w) — skip problematic FMV. https://github.com/esc0rtd3w/blank-intro-videos/ — **now RE-backed + tooled:** the boot dispatcher `FUN_004ABDE0` opens `warty_.bik` / `new_dalogo_fs_uncmpr.bik` / `new_nms.bik` / `splash to mm.bik` / `new_intro.bik` **from the CD HOG** and tolerates zero-frame movies, so `tools/blank_boot_videos.py` blanks them in-archive (extract→version-matched blank→repack). See **[`modern-fixes.md`](modern-fixes.md) §1**.
+- **Blank intro videos** (esc0rtd3w) — skip problematic FMV. https://github.com/esc0rtd3w/blank-intro-videos/ — **now RE-backed + tooled:** the three startup logos `warty_.bik` (Warthog) / `new_dalogo_fs_uncmpr.bik` (Digital Anvil) / `new_nms.bik` (Microsoft Game Studios) open **from the CD HOG** and the engine tolerates zero-frame movies, so `tools/blank_boot_videos.py` blanks just those three by default (the `splash to mm.bik` transition + `new_intro.bik` are opt-in) in-archive (extract→version-matched blank→repack). See **[`modern-fixes.md`](modern-fixes.md) §1**.
 
 **Widescreen** — **NO proper Hor+ fix exists.** INI `Xres/Yres` only *stretches* 4:3; HUD/menus don't adapt. → **OPEN OPPORTUNITY.** https://www.wsgf.org/dr/starlancer/en
 
