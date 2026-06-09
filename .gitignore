@@ -46,3 +46,20 @@ Thumbs.db
 
 # Local working log (private — not part of the published project)
 PROJECT-LOG.md
+
+# -- Hardening: RE artifacts / decrypted derivatives (never publish) --
+*.icd
+*.ICD
+LANCER_decrypted*
+*.gpr
+*.rep
+*.idb
+*.i64
+*.fm8
+*.iff
+*.sav
+dmodes.bin
+*stats.bin
+*.decompiled.c
+/analysis/
+/exports/
