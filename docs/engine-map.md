@@ -53,15 +53,20 @@ detail settings live here (the entry points for a widescreen/Hor+ patch).
 | `0x004A8880` | **Display-mode selection** | `dmodes.bin`, `renderdevice%d`, `Device` |
 | `0x004A8600` | Graphics detail / gamma config | `Device`, `Tdetail`, `Gdetail`, `Lmaps`, `Transitions`, `gamma` |
 | `0x004C3830` | Surrender init | `SR init: Attempting to call SR i…` |
+| `0x004C3A60` | **Projection scale/centre writer** (sets `+0x166E`/`+0x1686` scale, `+0x167A`/`+0x1692` centre + 5 clip planes from width/height & the `sX=0.6`,`sY=0.8` 4:3 params) | called directly at the end of device init/reset (`0x004ACBE0`/`0x004AD0A0`/`0x004AD2E0`); **the Hor+ FOV patch point** (see `modern-fixes.md` §3 / `tools/ws_patch.py`) |
 | `0x004C9A40` | Texture cache | `Texture Cache already initialise…` |
 | `0x004CB9D0` / `0x004CBBD0` | Colour-cube (CCB) load / save | `SR CCB load/save …` |
 | `0x004C98C0` | Texture attributes | `TEXTURE`, `USEPALETTE`, `ALPHACHANNEL`, `ERRDIFF` |
 | `0x004BFF40` | DirectDraw error decoder | full `DDERR_*` table |
 | `0x0042E9B0` | Device/gamma/transitions | `Device`, `gamma`, `Transitions` |
 
-Config artifact: **`dmodes.bin`** enumerates render devices/resolutions — primary target for adding
-widescreen modes. Aspect/viewport math is inside the Surrender `SR_*` calls invoked from the HUD/scene
-render (see §10).
+Config artifact: **`dmodes.bin`** enumerates render devices/resolutions. The display size lives in the
+device struct `DAT_00588730` (`+0x1666` width / `+0x166A` height); the **projection** scale/centre is
+written by **`FUN_004c3a60`** (`0x004C3A60`) from those dims and the baked `sX=0.6`/`sY=0.8` (= 4:3)
+params — *not* by the `DAT_00588730+0x40` callback, which is `SR_driver_init` inside the external
+`srddraw.dll` and only consumes the projection. **Native Hor+ widescreen is implemented** by a static
+code-cave at `FUN_004c3a60` (`sX := sY·h/w` ⇒ square pixels) plus a resolution-force cave at
+`0x004ACBE0` — see `modern-fixes.md` §3 and `tools/ws_patch.py`.
 
 ## 4. WinVFX — 2D shapes / overlay
 
@@ -218,9 +223,11 @@ DirectDraw/Direct3D, DirectInput and DirectPlay are also resolved dynamically vi
 
 ## 16. Pointers for the modernization work
 
-- **Widescreen / Hor+ (priority #1):** start at the display-mode list `0x004A8880` (`dmodes.bin`) and
-  device init `0x004778C0`/`0x004ACBE0` to allow non-4:3 resolutions; then the Surrender projection /
-  viewport (aspect) and HUD layout in `hud.cpp` `0x00483150` + cockpit `0x004934F0` for Hor+.
+- **Widescreen / Hor+ (priority #1): DONE** — `tools/ws_patch.py` patches the projection writer
+  `FUN_004c3a60` (`0x004C3A60`, `sX := sY·height/width` ⇒ square-pixel Hor+) and forces the flight
+  resolution via a cave at device init `0x004ACBE0` (globals `DAT_005d6b2c`/`DAT_005d6c88`). The core
+  flight HUD (`hud.cpp` `0x00483150`, cockpit `0x004934F0`) already auto-centres from width/height;
+  **v2** = native-widescreen menus + repositioning the 320×240-grid flight widgets (`0x00494040`).
 - **Mission editor:** the `TT_*` trigger table `0x0045B330` + mission runtime `0x0048E140`.
 - **Stat/ship tooling:** already covered by `slstats.py` / `slswitch.py`; cross-check loaders at
   `0x0049CAE0` (pilotstats) and `0x00441AA0` (ship preload).

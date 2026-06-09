@@ -68,20 +68,54 @@ If a wrapper crashes on first launch, clear the `[Device]` section in `starlance
 
 ---
 
-## 3. Resolution & widescreen  · CONFIG / **EXE (our active work)**
+## 3. Resolution & widescreen — native Hor+  · **EXE (our original fix)** · *SOLVED*
 
-**INI resolution (stretch only).** `starlancer.ini` → `Xres=`/`Yres=`. Do **not** exceed
-~`1280×1024` (higher values crash on many systems). This only **stretches** 4:3 — the HUD and
-menus do not adapt, and menus/FMV stay 640×480.
+**No true-widescreen fix existed anywhere — this was our prime original target, and it's now done.**
+The legacy options only ever *stretched* 4:3: setting `starlancer.ini` → `[Device] Xres`/`Yres`
+changes the in-flight render size but, unpatched, distorts the image (non-square pixels) and the
+HUD/menus don't adapt; values above ~`1280×1024` also tend to crash. Our patch makes the same
+resolution render with a correct **Hor+** field of view instead.
 
-**True Hor+ widescreen — no fix exists anywhere; this is our prime original target.** Verified
-anchors in the decompilation: 640×480 is written in `FUN_004ACBE0` (`0x004ACBE0`) to the
-Surrender device struct `DAT_00588730` (`+0x1666` width / `+0x166A` height), with resets at
-`0x4A8880` / `0x4A8600`; the selectable mode list is gated by `dmodes.bin`. Projection scale and
-centre are **independent X/Y** (`+0x166E`/`+0x1686` scale, `+0x167A`/`+0x1692` centre) — i.e.
-structurally Hor+-clean. **Open item:** the device-specific render-init behind the
-`DAT_00588730 + 0x40` vtable callback (end of `FUN_004ACBE0`) that writes those projection fields
-— the last piece for a correct FOV. **Layer:** EXE. **Source:** our RE (`engine-map.md`).
+### How to apply (`tools/ws_patch.py`)
+Patch a **local copy of your own** decrypted/No-CD exe (the tool never launches it; in-game testing
+is yours):
+
+```sh
+python tools/ws_patch.py --fov-table                                  # preview the FOV per aspect
+python tools/ws_patch.py --width 1920 --height 1080 Lancer.exe Lancer_ws.exe
+python tools/ws_patch.py --verify Lancer_ws.exe                       # confirm the patch state
+python tools/ws_patch.py --revert Lancer_ws.exe Lancer_stock.exe      # restore stock bytes
+```
+
+Run `Lancer_ws.exe` (pair with **dgVoodoo2/DDrawCompat** on modern GPUs — see §2). The in-flight
+3D view is Hor+ at your resolution; **menus/briefing stay 640×480 and pillarbox** (centred, not
+stretched) — that's intended for v1.
+
+### What it does (verified RE)
+The projection scale/centre writer is **`FUN_004c3a60` (`0x004C3A60`)** — *not* the
+`DAT_00588730+0x40` callback (that is `SR_driver_init` inside the external `srddraw.dll`, which only
+*consumes* the projection). It computes `scale_x=(w−K)·sX`, `scale_y=(h−K)·sY` into the device
+struct (`+0x166E`/`+0x1686` scale, `+0x167A`/`+0x1692` centre, `K≈0.1`), with `sX=0.6`, `sY=0.8`
+baked in — and `0.6/0.8 = 480/640`, i.e. a 4:3 encoding that yields **square pixels only at 4:3**.
+
+- **Patch 1 — Hor+ FOV** (code-cave at `0x004C3A60`): forces `sX := sY · height / width` at runtime,
+  so `scale_x == scale_y` (square pixels) and the X clip-planes (derived from the same value) widen
+  to match. Result: **vertical FOV fixed, horizontal FOV widens with the aspect** — textbook Hor+.
+  At any 4:3 resolution it recomputes to exactly `0.6` ⇒ **byte-identical to stock (regression-safe)**.
+- **Patch 2 — force resolution** (code-cave at `0x004ACBE0`): bakes `--width/--height` into the
+  flight-resolution globals `DAT_005d6b2c`/`DAT_005d6c88`, overriding INI/`dmodes.bin`. The front-end
+  device stays 640×480, so menus pillarbox.
+
+Both caves live in `.text` slack (no new section; size unchanged — 61 bytes changed total) and were
+statically verified (capstone disasm + an FOV table; the exe is never executed). Representative FOV
+(vertical fixed ≈64°): **16:9 → ~96° H**, **16:10 → ~90° H**, **21:9 → ~112° H**.
+
+**Caveats.** Widths >1280 may still hit the back/Z-buffer ceiling inside `srddraw.dll` (outside our
+static view) — pair with a wrapper and verify in-game. Native-widescreen **menus** and repositioning
+the few 320×240-grid **flight HUD widgets** are deferred to **v2** (the core flight HUD — radar,
+reticle, screen centre — already auto-derives from width/height, so it adapts).
+
+**Layer:** EXE. **Source:** our RE (`engine-map.md` §3/§16); tool `tools/ws_patch.py`.
 
 ---
 
@@ -174,8 +208,9 @@ The engine uses **Miles** (`mss32.dll`). For DirectSound3D/EAX surround on moder
 
 ## Open opportunities (original work)
 
-1. **Hor+ widescreen** — no fix exists; nearly fully mapped (§3). Highest-value.
-2. **100-FPS uncap** — no fix exists (§4).
+1. ~~**Hor+ widescreen**~~ — **DONE** (§3): `tools/ws_patch.py` (static EXE code-cave). v2 = native
+   widescreen menus + flight-HUD-widget reposition.
+2. **100-FPS uncap** — no fix exists (§4). Now the highest-value open item.
 3. **One consolidated modern-Windows fix pack** — DRM shim + dgVoodoo2 preset + crash fix + audio
    fix + boot-skip, bundled.
 
