@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 LordBlacksun
+# SPDX-License-Identifier: GPL-3.0-only
 <#
 ghidra_headless.ps1 - reusable headless Ghidra "dump" for the Starlancer RE project.
 

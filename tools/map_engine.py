@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 LordBlacksun
+# SPDX-License-Identifier: GPL-3.0-only
 r"""
 map_engine.py - cluster a Ghidra decompiled-C dump into engine subsystems.
 

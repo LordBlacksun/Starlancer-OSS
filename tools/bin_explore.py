@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 LordBlacksun
+# SPDX-License-Identifier: GPL-3.0-only
 """bin_explore.py - quick structured-binary explorer (read-only).
 
 Prints size + plausible record sizes (divisors), ASCII string runs with

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 LordBlacksun
+# SPDX-License-Identifier: GPL-3.0-only
 """
 pe_inspect.py - read-only PE32 inspector + SafeDisc fingerprinter.
 

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 LordBlacksun
+# SPDX-License-Identifier: GPL-3.0-only
 """Starlancer ``.DTE`` mission reference + inspector  (READ-ONLY, static).
 
 A ``.DTE`` is a per-mission **data + script container**, interpreted by an in-engine

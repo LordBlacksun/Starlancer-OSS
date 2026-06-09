@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 LordBlacksun
+# SPDX-License-Identifier: GPL-3.0-only
 """Self-test for tools/hog_extract.py — builds a synthetic BIGF/.HOG in memory
 (per docs/hog-format.md) and verifies the parser round-trips it. No game files needed."""
 import os

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 LordBlacksun
+# SPDX-License-Identifier: GPL-3.0-only
 """slswitch.py - Starlancer Coalition ship-switcher (data-layer).
 
 Replicates SLEdit's "ship switcher" at the file level: swaps a fighter's 3D

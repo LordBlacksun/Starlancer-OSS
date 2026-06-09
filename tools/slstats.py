@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 LordBlacksun
+# SPDX-License-Identifier: GPL-3.0-only
 """slstats.py - Starlancer SHIPSTATS / GUNSTATS / MISSILESTATS.BIN editor.
 
 All three tables are flat arrays of fixed 352-byte records:

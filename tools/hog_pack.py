@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 LordBlacksun
+# SPDX-License-Identifier: GPL-3.0-only
 """hog_pack.py - Starlancer .HOG (EA "BIGF") archive *writer* / editor.
 
 Companion to hog_extract.py. Builds valid BIGF archives and edits existing ones

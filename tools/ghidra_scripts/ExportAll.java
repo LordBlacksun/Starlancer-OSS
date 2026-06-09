@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 LordBlacksun
+// SPDX-License-Identifier: GPL-3.0-only
 // ExportAll.java - Ghidra headless post-script for the Starlancer RE project.
 // After auto-analysis, exports: a function index CSV, a single decompiled-C
 // file (all functions), defined strings, and the symbol table. Output dir is

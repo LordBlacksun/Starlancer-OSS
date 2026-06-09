@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 LordBlacksun
+# SPDX-License-Identifier: GPL-3.0-only
 """slstudio.py - Starlancer Studio: a GUI for the ship/stat editor + Coalition
 ship-switcher. Dependency-free (Tkinter/ttk, ships with Python). Thin layer over
 the validated slstats / slswitch / hog_pack libraries.

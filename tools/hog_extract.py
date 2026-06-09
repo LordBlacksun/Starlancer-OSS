@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 LordBlacksun
+# SPDX-License-Identifier: GPL-3.0-only
 """Starlancer .HOG (Electronic Arts "BIGF") archive lister / extractor.
 
 Format reverse-engineered from SLExtract (DraconPern & KingLord); see
