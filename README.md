@@ -84,16 +84,32 @@ documentation were written by Anthropic's Claude under human direction. See
 
 ## Credits
 
-- `.HOG` / `BIGF` format originally reverse-engineered by **DraconPern & KingLord** (the *SLExtract* tool).
-- Mission (`.DTE`) opcode / trigger / ship-ID tables and observed in-game semantics by
-  **Captain Foster / Starlancer ME** — <https://starlancerme.blogspot.com/> ·
-  [@CaptainFoster](https://www.youtube.com/@CaptainFoster).
-- The **game content reference** ([`docs/game-reference/`](docs/game-reference/)) — ship/weapon
-  stats, the character roster, mission/campaign details, faction lore, ranks and medals — is compiled
-  from the community-run **[Starlancer Wiki on Fandom](https://starlancer.fandom.com/)** and its
-  contributors, used under **[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/)**. Those
-  reference pages are offered under the same CC BY-SA 3.0 terms; the rest of the repository remains
-  GPL-3.0. With thanks to the Starlancer Wiki editors.
+This project stands on the work of the Starlancer modding community. The file formats here were
+**reverse-engineered independently** (clean-room, statically); these are the people whose earlier
+tools and research we build on, with thanks:
+
+- **DraconPern & KingLord** — the `.HOG` / EA `BIGF` archive format (the *SLExtract* tool, with
+  source released). Basis for [`hog_extract.py`](tools/hog_extract.py) / [`hog_pack.py`](tools/hog_pack.py).
+- **Captain Foster / Starlancer ME** — `.DTE` mission opcode / trigger / ship-ID tables and observed
+  in-game semantics — <https://starlancerme.blogspot.com/> ·
+  [@CaptainFoster](https://www.youtube.com/@CaptainFoster). Fused into
+  [`dte_parse.py`](tools/dte_parse.py) and the `.DTE` docs.
+- **"Userunfriendly"** — the *hexcheat* known-delta stat pack that revealed the
+  `SHIP/GUN/MISSILESTATS.BIN` field offsets — basis for [`slstats.py`](tools/slstats.py).
+- **Dustin** — *SLEdit*, whose data-layer Coalition ship-switch mechanic is reimplemented by
+  [`slswitch.py`](tools/slswitch.py).
+- **Mario "HCl" Brito** — *SL Tool*, *LWO2SL*, and the *MilkShape* `.SHP` import/export plugins — the
+  prior art for the `.SHP` 3D-model format (RE in progress).
+- **Raidersoft** (*StarLancEdit*) and **Twister / Twisted Media** (*Saved Game Editor*) — the
+  `MYGAME*.IFF` save and `profile.bin` formats (RE planned).
+- The **game content reference** ([`docs/game-reference/`](docs/game-reference/)) is compiled from the
+  community **[Starlancer Wiki on Fandom](https://starlancer.fandom.com/)** under
+  **[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/)** (those pages are offered under
+  the same terms; the rest of the repo remains GPL-3.0). With thanks to the Starlancer Wiki editors.
+
+Many of these tools are preserved in the
+**[Starlancer-mod-tools](https://github.com/LordBlacksun/Starlancer-mod-tools)** mirror; each remains
+under its original author's terms (typically freeware).
 
 ## License
 

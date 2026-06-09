@@ -48,7 +48,7 @@ Clean/NoCD exe (or test **SafeDiscShim**) + **dgVoodoo2** (DLLs from its `MS\x86
 | **`.SHP`** | 3D ship / models | **SL Tool 1.4** (viewer + hardpoint/engine-flame editor), **LWO2SL** (LightWave→SHP), **MilkShape SHP import/export** plugins — all by Mario "HCl" Brito |
 | **`MYGAME*.IFF`** | save games | **StarLancEdit 1.11** (Raidersoft) |
 | save / MP profile | callsign, kills, rank, level… | **StarLancer Saved Game Editor 1.0** (Twister) |
-| **`SHIPSTATS.BIN` / `GUNSTATS.BIN` / `MISSILESTATS.BIN`** | stat tables | **SLEdit** (stat editing); `hexcheat` = pre-modded drop-ins |
+| **`SHIPSTATS.BIN` / `GUNSTATS.BIN` / `MISSILESTATS.BIN`** | stat tables | **SLEdit** (Dustin; stat editing); `hexcheat` (Userunfriendly) = pre-modded drop-ins |
 
 - **SLExtract's source (VC6/MFC) is the key asset** — a working description of the `.HOG` archive format. **Now fully reverse-engineered → see [`hog-format.md`](hog-format.md);** a modern cross-platform extractor lives at `tools\hog_extract.py` (validated by `analysis\hog_selftest.py`).
 - Tools are 24+ yrs old (Win9x/2000/XP) — may need compatibility mode / a VM / Wine for the InstallShield-packaged ones.

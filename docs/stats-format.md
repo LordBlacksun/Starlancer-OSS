@@ -1,6 +1,6 @@
 # Starlancer stat tables — `SHIPSTATS.BIN` / `GUNSTATS.BIN` / `MISSILESTATS.BIN`
 
-*Reverse-engineered 2026-06-08 from the extracted game files (`LANCER.CAB\CAB\*.bin`) by diffing against the **hexcheat** known-delta mod pack — each hexcheat file super-stats exactly one ship, so the changed dwords reveal field offsets. Tool: [`tools/slstats.py`](../tools/slstats.py).*
+*Reverse-engineered 2026-06-08 from the extracted game files (`LANCER.CAB\CAB\*.bin`) by diffing against **Userunfriendly's** *hexcheat* known-delta mod pack — each hexcheat file super-stats exactly one ship, so the changed dwords reveal field offsets. Tool: [`tools/slstats.py`](../tools/slstats.py).*
 
 ## Where they live
 Not in the CD `.HOG` archives (those are media only). They ship inside the disc's InstallShield payload **`LANCER.CAB`** (a *standard MS-CAB*, LZX — `7z x LANCER.CAB`), under `CAB\shipstats.bin`, `CAB\gunstats.bin`, `CAB\missilestats.bin`, `CAB\pilotstats.bin`. At install they become loose files in the game directory (which is what SLEdit / hexcheat overwrite).
