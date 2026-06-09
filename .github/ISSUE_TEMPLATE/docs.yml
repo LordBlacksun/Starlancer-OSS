@@ -1,0 +1,17 @@
+name: Docs improvement
+description: A gap, error, or clarification in the documentation or wiki.
+labels: [documentation]
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Which page
+      placeholder: "e.g. docs/engine-map.md, or the wiki 'Fighters' page"
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: What should change
+    validations:
+      required: true

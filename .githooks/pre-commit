@@ -1,12 +1,28 @@
 #!/bin/sh
 # Starlancer-OSS safety guard (pre-commit).
-# This repo must contain ONLY original code + documentation — NEVER game
+# This repo must contain ONLY original code + documentation - NEVER game
 # binaries, assets, disc images, or decrypted/derivative game data (copyright).
 # Defense-in-depth on top of .gitignore: catches force-added / mis-pathed files.
+#
+# The actual rules live in tools/check_no_game_data.py, which CI runs too, so the
+# local and server-side guards never drift. This hook just runs that checker over
+# the staged files. If no Python is found it falls back to an inline check below,
+# so commits stay protected either way.
 #
 # Bypass ONLY if you are certain a match is a false positive:
 #     git commit --no-verify
 
+checker="tools/check_no_game_data.py"
+if [ -f "$checker" ]; then
+  for py in python3 python py; do
+    if command -v "$py" >/dev/null 2>&1; then
+      "$py" "$checker" --staged
+      exit $?
+    fi
+  done
+fi
+
+# --- Fallback (no Python on PATH): inline guard, same rules as the checker. ---
 forbidden='\.(exe|dll|icd|hog|iso|cue|mds|mdf|bin|bik|tga|spr|shp|fat|mp3|wav|ogg|cab|zip|7z|rar|gpr|rep|idb|i64|fm8|iff|sav|dte)$'
 namehint='(lancer_decrypted|lancer\.exe|lancer\.icd|dmodes\.bin|shipstats|gunstats|missilestats|pilotstats|\.decompiled\.c)'
 maxbytes=5242880   # 5 MB
@@ -24,7 +40,7 @@ for f in $files; do
   if [ -f "$f" ]; then
     sz=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
     if [ -n "$sz" ] && [ "$sz" -gt "$maxbytes" ]; then
-      echo "BLOCKED: '$f' is large ($sz bytes > $maxbytes) — assets must not be committed."; fail=1
+      echo "BLOCKED: '$f' is large ($sz bytes > $maxbytes) - assets must not be committed."; fail=1
     fi
   fi
 done
@@ -32,7 +48,7 @@ done
 if [ "$fail" -ne 0 ]; then
   echo ""
   echo "Commit rejected by the Starlancer-OSS safety hook (copyright/data guard)."
-  echo "Only original code/docs belong here — never game binaries or assets."
+  echo "Only original code/docs belong here - never game binaries or assets."
   echo "False positive? Re-run with:  git commit --no-verify"
   exit 1
 fi

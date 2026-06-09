@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: tests (${{ matrix.os }} / py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+        python: [ '3.8', '3.10', '3.12' ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # Runs the no-game-data self-tests AND the game-data guard over the whole
+      # tracked tree, so anything that slipped past the local pre-commit hook
+      # (e.g. a --no-verify commit) fails the build server-side.
+      - name: Self-tests + game-data guard
+        run: python tests/run_all.py

@@ -1,0 +1,32 @@
+name: Bug report
+description: A tool crashes, produces wrong output, or a documented fact seems wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please **don't paste game data**. Describe inputs in the abstract
+        (e.g. "a 967-file resource.hog"), not by attaching them.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you run, what did you expect, and what did you get?
+      placeholder: |
+        Command: python tools/slstats.py ...
+        Expected: ...
+        Got: ...
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: "OS + Python version (python --version)"
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Stack trace (no game data), screenshots, etc.

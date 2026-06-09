@@ -1,5 +1,7 @@
 # Starlancer Open-Source Project
 
+[![CI](https://github.com/LordBlacksun/Starlancer-OSS/actions/workflows/ci.yml/badge.svg)](https://github.com/LordBlacksun/Starlancer-OSS/actions/workflows/ci.yml)
+
 Open-source reverse-engineering tools and documentation for **Starlancer**
 (Digital Anvil / Microsoft, 2000) — the space-combat flight sim.
 
@@ -67,9 +69,12 @@ work on the Direct3D 7 renderer, and the `.SHP` ship-model format.
 
 ## Contributing
 
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). The one hard rule: **never
-commit game data** (binaries, assets, or decrypted/derivative game files); a `.gitignore` plus a
-pre-commit guard enforce it.
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) (dev setup, commit style, and how
+to submit) and our [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). The one hard rule: **never commit game
+data** (binaries, assets, or decrypted/derivative game files); a `.gitignore`, a pre-commit guard,
+and a CI check ([`tools/check_no_game_data.py`](tools/check_no_game_data.py)) enforce it. Run
+`python tests/run_all.py` before a PR. To report a guard bypass or other issue privately, see
+[SECURITY.md](SECURITY.md).
 
 ## AI transparency
 

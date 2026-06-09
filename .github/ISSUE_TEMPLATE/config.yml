@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Project wiki (engine + game reference)
+    url: https://github.com/LordBlacksun/Starlancer-OSS/wiki
+    about: Browse the engine reference and game reference before filing.
+  - name: Contributing guide
+    url: https://github.com/LordBlacksun/Starlancer-OSS/blob/main/CONTRIBUTING.md
+    about: Dev setup, the game-data rule, commit style, and how to submit.

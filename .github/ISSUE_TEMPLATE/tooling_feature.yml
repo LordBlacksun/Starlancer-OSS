@@ -1,0 +1,18 @@
+name: Tooling / feature request
+description: A new tool, a new capability, or an enhancement to an existing tool.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: The capability and the use case it serves.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: >
+        Relevant formats/addresses, prior art, or a sketch of the approach. Remember tools must be
+        standard-library only and must not require game data to run their self-tests.

@@ -1,0 +1,10 @@
+# Code owners for Starlancer-OSS.
+# @LordBlacksun is the default owner and reviews all changes.
+*                               @LordBlacksun
+
+# Safety-critical paths — the game-data guard must never be weakened without review.
+/.githooks/                     @LordBlacksun
+/.gitignore                     @LordBlacksun
+/.github/workflows/             @LordBlacksun
+/tools/check_no_game_data.py    @LordBlacksun
+/LICENSE                        @LordBlacksun

@@ -1,0 +1,30 @@
+name: RE finding / correction
+description: A new reverse-engineering finding, or a correction to a documented address or format.
+labels: [documentation]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Static RE only.** Cite evidence so it can be checked against the decompilation.
+        Do not attach game data.
+  - type: textarea
+    id: finding
+    attributes:
+      label: The finding
+      description: What did you discover, or what is wrong in the current docs?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: >
+        Addresses (VA for ImageBase 0x400000), function names, debug strings, struct offsets.
+        Mark each claim [verified] (read in code) vs [inferred].
+    validations:
+      required: true
+  - type: input
+    id: doc
+    attributes:
+      label: Affected doc / tool
+      placeholder: "e.g. docs/dte-format.md §10, or tools/dte_parse.py"
