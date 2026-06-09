@@ -14,10 +14,11 @@ Open-source reverse-engineering tools and documentation for **Starlancer**
 |------|-------------|
 | [`docs/hog-format.md`](docs/hog-format.md) | `.HOG` archive format (Electronic Arts `BIGF`). |
 | [`docs/stats-format.md`](docs/stats-format.md) | `SHIP/GUN/MISSILESTATS.BIN` — 352-byte stat record layout. |
-| [`docs/dte-format.md`](docs/dte-format.md) | `.DTE` mission format: file container, trigger system, scripting VM. |
+| [`docs/dte-format.md`](docs/dte-format.md) | `.DTE` mission format: **RefPack** container, trigger system, scripting VM. |
 | [`docs/dte-scripting-reference.md`](docs/dte-scripting-reference.md) | Complete trigger / Executor-command / AI-code / opcode tables. |
 | [`docs/engine-map.md`](docs/engine-map.md) | Engine architecture: middleware stack + per-subsystem address map. |
 | [`docs/modding-scene.md`](docs/modding-scene.md) | Community modding tools, the widescreen gap, and DRM notes. |
+| [`docs/modern-fixes.md`](docs/modern-fixes.md) | Modern-Windows fix catalogue (boot-video skip, wrappers, widescreen, DRM, audio …) — RE-backed. |
 
 See also the [project wiki](https://github.com/LordBlacksun/Starlancer-OSS/wiki) for the engine reference.
 
@@ -33,7 +34,8 @@ files from your own copy of the game; none contain or redistribute game data.
 | [`tools/slstats.py`](tools/slstats.py) | Ship / weapon **stat editor** (the stat `.BIN` tables). |
 | [`tools/slswitch.py`](tools/slswitch.py) | **Coalition ship-switcher** (data-layer `.shp` swap in the HOG). |
 | [`tools/slstudio.py`](tools/slstudio.py) | Tkinter **GUI** over the stat editor + ship switcher. |
-| [`tools/dte_parse.py`](tools/dte_parse.py) | `.DTE` mission reference tables + read-only inspector. |
+| [`tools/dte_parse.py`](tools/dte_parse.py) | `.DTE` mission **decoder** (RefPack + 27-section directory + script disasm) + reference tables. |
+| [`tools/blank_boot_videos.py`](tools/blank_boot_videos.py) | Skip the boot Bink movies by blanking them in a `.HOG` (static — never runs the game). |
 | [`tools/pe_inspect.py`](tools/pe_inspect.py) | Read-only PE header / section / entropy / imports inspector. |
 | [`tools/bin_explore.py`](tools/bin_explore.py) · [`tools/bin_diff.py`](tools/bin_diff.py) | Generic binary explore / diff helpers. |
 | [`tools/map_engine.py`](tools/map_engine.py) | Cluster decompiled functions into subsystems (builds the engine map). |
@@ -47,15 +49,19 @@ python tools/hog_extract.py path/to/resource.hog            # list contents
 python tools/hog_extract.py path/to/resource.hog -o out/    # extract everything
 python tools/slstats.py --help                              # ship/weapon stat editor
 python tools/dte_parse.py ref exec                          # print the Executor command table
+python tools/dte_parse.py decode mission1.dte               # decompress (RefPack) + decode a mission
 python tests/hog_selftest.py                                # run the self-test
 ```
 
 ## Status
 
 Documented & tooled: the `.HOG`/BIGF archive format (extractor + packer), the ship/weapon stat
-tables (editor + GUI), the Coalition ship-switcher, and the `.DTE` mission format (container +
-trigger VM + the full scripting opcode/command reference). In progress: modern-Windows /
-widescreen (Hor+) work on the Direct3D 7 renderer, and the `.SHP` ship-model format.
+tables (editor + GUI), the Coalition ship-switcher, and the `.DTE` mission format — the **RefPack
+container is decoded end-to-end** (`dte_parse.py` decodes all 44 missions: directory, ships,
+triggers, and the script bytecode) plus the full scripting opcode/command reference. A
+**modern-Windows fix catalogue** ([`docs/modern-fixes.md`](docs/modern-fixes.md)), fusing
+community fixes with our RE, ships with a boot-video-skip tool. In progress: widescreen (Hor+)
+work on the Direct3D 7 renderer, and the `.SHP` ship-model format.
 
 ## Contributing
 

@@ -1,31 +1,42 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 LordBlacksun
 # SPDX-License-Identifier: GPL-3.0-only
-"""Starlancer ``.DTE`` mission reference + inspector  (READ-ONLY, static).
+"""Starlancer ``.DTE`` mission decoder + reference  (READ-ONLY, static).
 
 A ``.DTE`` is a per-mission **data + script container**, interpreted by an in-engine
 trigger/event VM. It is never executed as native code, so everything here is pure
 data inspection.
 
-This module is the machine-readable companion to ``docs/dte-format.md`` and
-``docs/dte-scripting-reference.md``. It fuses two reverse-engineering sources:
+On-disk container (fully decoded -- see ``docs/dte-format.md``):
+
+* The HOG-stored ``.dte`` is **RefPack / EA "QFS" compressed** (signature ``10 FB``,
+  3-byte big-endian uncompressed size).  The engine reads it (``FUN_0045A300`` ->
+  ``FUN_004C5BE0`` HOG read, no extra transform) and the RefPack stream expands into a
+  fixed image (~0xCFBE7 bytes for the main campaign template).
+* The decompressed image opens with a **27-entry, 8-byte directory** at offset 0:
+  each entry is ``{u16 count, byte reloc-flags @ bits 24-27, u32 offset}`` and the
+  offset is absolute within the image (``0xFFFF`` = empty-section sentinel).  This is
+  the table walked by ``FUN_00451D90`` / ``FUN_00452A20`` (27 sequential reads).
+* The section offsets match Captain Foster / "Starlancer ME"'s black-box anchors
+  exactly (objects ``0x30FF7``, events ``0x47BF7``, target-list ``0x57BF7`` ...), so
+  the blog's numbers are positions in *this* decompressed image -- independent
+  cross-validation of both efforts.
+
+The semantic tables (trigger enum, Executor commands, AI codes, stream opcodes) fuse:
 
 * **Static RE of the decrypted exe** (ImageBase 0x400000): the trigger enum
   (``FUN_0045B330``), the command catalogue ``DAT_004F3AD0``, the bytecode VM
-  ``FUN_0045C980`` over the 256-entry table ``DAT_004F6350``, and the per-command
-  implementation addresses + parameter counts.
+  ``FUN_0045C980`` over the 256-entry table ``DAT_004F6350``, per-command impl
+  addresses + parameter counts, and the loader's section order (``FUN_00451D90``).
 * **Black-box RE by Captain Foster / "Starlancer ME"** (starlancerme.blogspot.com):
   the numeric opcode/command indices, the AI-code table, the ship/pilot ID tables,
   and the observed in-game semantics.
 
-Container caveat: the exact on-disk descriptor framing of the *HOG-extracted* mission
-blobs is not fully decoded (see docs); this tool therefore inspects/validates rather
-than fully unpacks. The semantic tables below are verified and authoritative.
-
 Usage:
   dte_parse.py ref [triggers|exec|ai|stream]   # print a reference table
-  dte_parse.py inspect <mission.dte>           # size / histogram / strings / markers
-  dte_parse.py sweep <dir>                      # consistency report over many .dte
+  dte_parse.py decode <mission.dte> [--limit N] [--section NAME]   # full decode
+  dte_parse.py inspect <mission.dte>           # raw (compressed) quick look
+  dte_parse.py sweep <dir>                      # decode + validate every .dte
 """
 import argparse
 import os
@@ -172,7 +183,256 @@ STREAM_OPS = [
     ("0x14", "Squad / condition membership test", "expr"),
 ]
 
+# --------------------------------------------------------------------------- #
+#  Container layer -- RefPack/QFS decompression + the 27-section directory.    #
+# --------------------------------------------------------------------------- #
+# Decompressed-image section order, from the 27 sequential FUN_00452A20 reads in
+# the loader FUN_00451D90 (the global each entry fills, + the role where known).
+# "stride"/"kind" drive the record decoders; None = not record-decoded yet.
+SECTIONS = [
+    ("string_pool",      "DAT_00525FA8", "strings"),   # 0  -- name/text pool
+    ("section1",         "DAT_00525F3C", None),         # 1  -- large aux table (open)
+    ("globals",          "DAT_005294F8", "globals"),    # 2  -- script global variables
+    ("ships",            "DAT_0052951C", "ships"),      # 3  -- flight-group/ship array, stride 0x4C
+    ("fg_triggers",      "DAT_005267CC", "fg"),         # 4  -- per-FG table, stride 0x14 (blog: "FG triggers")
+    ("triggers",         "DAT_005294E0", "triggers"),   # 5  -- scriptable triggers, stride 0x30 (blog: "fighter triggers")
+    ("script",           "DAT_00525F88", "script"),     # 6  -- bytecode stream (count = #bytes)
+    ("ship_trig_index",  "DAT_005267C0", None),         # 7
+    ("launch_object",    "DAT_005267D0", None),         # 8
+    ("section9",         "DAT_005256C8", None),         # 9
+    ("script_yieldflags","DAT_005294D8", None),         # 10 -- per-byte yield flags (count = #script bytes)
+    ("section11",        "PTR_DAT_004EF2FC", None),     # 11
+    ("section12",        "DAT_005294FC", None),         # 12
+    ("squad",            "DAT_00529500", None),         # 13
+    ("section14",        "DAT_00525F18", None),         # 14
+    ("section15",        "DAT_005256B8", None),         # 15
+    ("section16",        "DAT_00525FB0", None),         # 16
+    ("section17",        "DAT_005294EC", None),         # 17
+    ("section18",        "DAT_00525FB4", None),         # 18
+    ("section19",        "DAT_0052950C", None),         # 19
+    ("section20",        "DAT_00525FA0", None),         # 20
+    ("section21",        "(local)",      None),         # 21
+    ("section22",        "DAT_00525278", None),         # 22
+    ("section23",        "PTR_DAT_004EE7D8", None),     # 23
+    ("section24",        "DAT_00525F9C", None),         # 24
+    ("section25",        "DAT_00525F90", None),         # 25
+    ("section26",        "DAT_0052570C", None),         # 26
+]
+EMPTY_OFF = 0xFFFF  # directory sentinel for an unused section
 
+
+class DTEError(Exception):
+    pass
+
+
+def refpack_decompress(data):
+    """Decompress an EA RefPack / "QFS" stream (the .dte container codec).
+
+    Header: byte0 = flags, byte1 = 0xFB; uncompressed size is 3 bytes big-endian
+    (4 if flags & 0x80); an optional compressed-size field precedes it if flags & 0x01.
+    Returns (declared_size, bytes).  Raises DTEError on a bad signature.
+    """
+    if len(data) < 6 or data[1] != 0xFB:
+        raise DTEError("not a RefPack stream (sig %02X %02X)" % (data[0], data[1] if len(data) > 1 else 0))
+    flags = data[0]
+    i = 2
+    if flags & 0x01:
+        i += 4 if flags & 0x80 else 3          # skip compressed-size field
+    if flags & 0x80:
+        size = (data[i] << 24) | (data[i + 1] << 16) | (data[i + 2] << 8) | data[i + 3]; i += 4
+    else:
+        size = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2]; i += 3
+    out = bytearray()
+    n = len(data)
+    while i < n:
+        ctrl = data[i]; i += 1
+        if ctrl < 0x80:                         # 2-byte form
+            a = data[i]; i += 1
+            nproc = ctrl & 0x03
+            out += data[i:i + nproc]; i += nproc
+            ncopy = ((ctrl >> 2) & 0x07) + 3
+            roff = ((ctrl & 0x60) << 3) + a + 1
+            for _ in range(ncopy):
+                out.append(out[-roff])
+        elif ctrl < 0xC0:                       # 3-byte form
+            a = data[i]; b = data[i + 1]; i += 2
+            nproc = (a >> 6) & 0x03
+            out += data[i:i + nproc]; i += nproc
+            ncopy = (ctrl & 0x3F) + 4
+            roff = ((a & 0x3F) << 8) + b + 1
+            for _ in range(ncopy):
+                out.append(out[-roff])
+        elif ctrl < 0xE0:                       # 4-byte form
+            a = data[i]; b = data[i + 1]; c = data[i + 2]; i += 3
+            nproc = ctrl & 0x03
+            out += data[i:i + nproc]; i += nproc
+            ncopy = ((ctrl & 0x0C) << 6) + c + 5
+            roff = ((ctrl & 0x10) << 12) + (a << 8) + b + 1
+            for _ in range(ncopy):
+                out.append(out[-roff])
+        elif ctrl < 0xFC:                       # literal run (4..124, multiple of 4)
+            nproc = ((ctrl & 0x1F) << 2) + 4
+            out += data[i:i + nproc]; i += nproc
+        else:                                   # 0xFC..0xFF: final 0..3 literals, end
+            nproc = ctrl & 0x03
+            out += data[i:i + nproc]; i += nproc
+            break
+    return size, bytes(out)
+
+
+class Mission:
+    """A decoded mission image (decompressed) + its 27-section directory."""
+
+    def __init__(self, raw):
+        self.declared, self.image = refpack_decompress(raw)
+        if self.declared != len(self.image):
+            raise DTEError("size mismatch: header %d, produced %d" % (self.declared, len(self.image)))
+        m = self.image
+        self.dir = []  # list of (count, offset, flags)
+        for k in range(27):
+            cf, off = struct.unpack_from("<II", m, k * 8)
+            self.dir.append((cf & 0xFFFF, off, (cf >> 24) & 0x0F))
+        self.reloc_flags = self.dir[0][2] if self.dir else 0
+
+    def count(self, slot):
+        return self.dir[slot][0]
+
+    def offset(self, slot):
+        return self.dir[slot][1]
+
+    def present(self, slot):
+        off = self.dir[slot][1]
+        return off != EMPTY_OFF and off <= len(self.image)
+
+    def string(self, rel):
+        """Null-terminated string at string_pool + rel (rel = 0xFFFF -> '')."""
+        if rel == 0xFFFF:
+            return ""
+        p = self.offset(0) + rel
+        e = self.image.find(b"\0", p)
+        return self.image[p:e if e >= 0 else None].decode("latin-1", "replace")
+
+    # -- record decoders -------------------------------------------------- #
+    def ships(self):
+        base, n, m = self.offset(3), self.count(3), self.image
+        for i in range(n):
+            r = base + i * 0x4C
+            rec = m[r:r + 0x4C]
+            if len(rec) < 0x4C:
+                break
+            fg = struct.unpack_from("<H", rec, 0)[0]
+            name = self.string(struct.unpack_from("<H", rec, 4)[0])
+            pos = struct.unpack_from("<3f", rec, 8)
+            yield {"i": i, "fg": fg, "name": name, "pos": pos,
+                   "b14": rec[0x14], "iff": rec[0x15], "type": rec[0x18], "raw": rec}
+
+    def fg_records(self):
+        base, n, m = self.offset(4), self.count(4), self.image
+        for i in range(n):
+            r = base + i * 0x14
+            rec = m[r:r + 0x14]
+            if len(rec) < 0x14:
+                break
+            a, b, c, d = struct.unpack_from("<IIII", rec, 0)
+            yield {"i": i, "id": a, "ref": b, "f8": c, "f12": d, "raw": rec}
+
+    def triggers(self):
+        base, n, m = self.offset(5), self.count(5), self.image
+        for i in range(n):
+            r = base + i * 0x30
+            rec = m[r:r + 0x30]
+            if len(rec) < 0x30:
+                break
+            yield {"i": i, "b0": rec[0], "b1": rec[1], "b2": rec[2],
+                   "fields": struct.unpack_from("<8H", rec, 8), "raw": rec}
+
+
+# --------------------------------------------------------------------------- #
+#  Script-stream disassembler (linear; the action + condition opcodes).        #
+# --------------------------------------------------------------------------- #
+# operand byte-width per opcode (best-effort; unknown opcodes consume 0 operands)
+_OPW = {0x21: 1, 0x32: 1, 0x22: 1, 0x4D: 1, 0x2A: 1, 0x2C: 1, 0x2D: 1,
+        0x27: 1, 0x40: 1, 0x3F: 1, 0x28: 1, 0x23: 2, 0x24: 2,
+        0x02: 0, 0x03: 0, 0x43: 0, 0x14: 0, 0x42: 1, 0x09: 0, 0x07: 0}
+
+
+def disasm_script(mission, limit=120):
+    """Yield human-readable lines for the script bytecode section (slot 6).
+
+    The stream is a series of u16-length-prefixed blocks; within a block the bytes
+    are action/condition opcodes.  This is a *linear* decode (operands consumed by
+    width); 0x22 <p> part-markers delimit logical parts.
+    """
+    m = mission.image
+    base = mission.offset(6)
+    size = mission.count(6)
+    end = base + size
+    p = base
+    emitted = 0
+    block = 0
+    while p + 2 <= end and emitted < limit:
+        blen = struct.unpack_from("<H", m, p)[0]
+        if blen == 0 or p + 2 + blen > end:
+            break
+        yield "  block %-3d @+0x%05X  len=%d" % (block, p - base, blen)
+        q = p + 2
+        bend = q + blen
+        while q < bend and emitted < limit:
+            op = m[q]; q += 1
+            w = _OPW.get(op, 0)
+            operand = m[q:q + w]; q += w
+            yield "    " + _fmt_op(op, operand)
+            emitted += 1
+        block += 1
+        p = bend
+    if emitted >= limit:
+        yield "    ... (truncated at --limit %d ops)" % limit
+
+
+def _fmt_op(op, operand):
+    val = operand[0] if len(operand) == 1 else (struct.unpack("<H", operand)[0] if len(operand) == 2 else None)
+    if op == 0x21:
+        nm = EXEC_BLOG.get(val, "?")
+        pc, _ = EXEC_IMPL.get(nm, (None, None))
+        return "21 %02X  Exec %-26s %s" % (val, nm, ("(%d params)" % pc) if pc is not None else "")
+    if op == 0x32:
+        return "32 %02X  AI   %s" % (val, AI_CODES.get(val, "?"))
+    if op == 0x22:
+        return "22 %02X  -- part %d --" % (val, val)
+    if op == 0x4D:
+        return "4D %02X  jump-> part %d" % (val, val)
+    if op == 0x2A:
+        return "2A %02X  PlaySpeech idx=%d" % (val, val)
+    if op == 0x2C:
+        return "2C %02X  object ref %d" % (val, val)
+    if op == 0x2D:
+        return "2D %02X  flight-group ref %d" % (val, val)
+    if op == 0x27:
+        return "27 %02X  read global[%d]" % (val, val)
+    if op == 0x40:
+        return "40 %02X  &global[%d] (write)" % (val, val)
+    if op == 0x3F:
+        return "3F %02X  &array[%d] / jump" % (val, val)
+    if op == 0x28:
+        return "28 %02X  wait/operand %d" % (val, val)
+    if op in (0x23, 0x24):
+        return "%02X %04X  push imm 0x%04X" % (op, val, val)
+    if op == 0x02:
+        return "02     cmp !="
+    if op == 0x03:
+        return "03     cmp =="
+    if op == 0x43:
+        return "43     <line end>"
+    if op == 0x14:
+        return "14     squad/membership test"
+    if op == 0x42:
+        return "42 %02X  (op 0x42)" % val
+    return "%02X     <op 0x%02X>" % (op, op)
+
+
+# --------------------------------------------------------------------------- #
+#  Commands                                                                    #
+# --------------------------------------------------------------------------- #
 def merged_exec():
     """Yield (index, name, param_count, impl_va, matched) over 0x00..0x5F."""
     for i in range(0x60):
@@ -208,6 +468,61 @@ def cmd_ref(args):
         print()
 
 
+def cmd_decode(args):
+    try:
+        mis = Mission(open(args.file, "rb").read())
+    except DTEError as e:
+        print("ERROR: %s" % e, file=sys.stderr)
+        return 2
+    only = args.section
+    name = os.path.basename(args.file)
+    print("%s  ->  RefPack image %d bytes (0x%X)  reloc-flags=0x%X"
+          % (name, len(mis.image), len(mis.image), mis.reloc_flags))
+
+    if only in (None, "dir"):
+        print("\n# 27-section directory")
+        print("  slot  section            global             count   offset")
+        for k, (label, dat, kind) in enumerate(SECTIONS):
+            cnt, off, fl = mis.dir[k]
+            offs = "(empty)" if off == EMPTY_OFF else "0x%06X" % off
+            print("  [%2d]  %-18s %-18s %5d   %s%s"
+                  % (k, label, dat, cnt, offs, "  +reloc0x%X" % fl if fl else ""))
+
+    if only in (None, "ships"):
+        print("\n# ships / flight groups  (slot 3, stride 0x4C, n=%d)" % mis.count(3))
+        for s in _head(mis.ships(), args.limit):
+            x, y, z = s["pos"]
+            print("  [%3d] fg=%-4d %-22s pos=(%11.1f,%9.1f,%11.1f) iff=0x%02X type=0x%02X"
+                  % (s["i"], s["fg"], '"%s"' % s["name"], x, y, z, s["iff"], s["type"]))
+
+    if only in (None, "fg"):
+        print("\n# FG/objective table  (slot 4, stride 0x14, n=%d)" % mis.count(4))
+        for r in _head(mis.fg_records(), args.limit):
+            print("  [%2d] id=0x%X ref=0x%04X f8=0x%X f12=0x%X  txt=%r"
+                  % (r["i"], r["id"], r["ref"], r["f8"], r["f12"], mis.string(r["ref"] & 0xFFFF)[:32]))
+
+    if only in (None, "triggers"):
+        print("\n# triggers  (slot 5, stride 0x30, n=%d)" % mis.count(5))
+        for t in _head(mis.triggers(), args.limit):
+            print("  [%2d] b0=0x%02X b1=0x%02X b2=0x%02X  fields=%s"
+                  % (t["i"], t["b0"], t["b1"], t["b2"], " ".join("%04X" % v for v in t["fields"])))
+
+    if only in (None, "script"):
+        print("\n# script bytecode  (slot 6, %d bytes)" % mis.count(6))
+        for line in disasm_script(mis, args.limit if args.limit else 120):
+            print(line)
+    return 0
+
+
+def _head(it, limit):
+    out = []
+    for i, x in enumerate(it):
+        if limit and i >= limit:
+            break
+        out.append(x)
+    return out
+
+
 def tokens(data, lo=3):
     return [(m.start(), m.group().decode("latin-1"))
             for m in re.finditer(("[\\x20-\\x7e]{%d,}" % lo).encode(), data)]
@@ -216,52 +531,55 @@ def tokens(data, lo=3):
 def cmd_inspect(args):
     data = open(args.file, "rb").read()
     n = len(data)
+    sig = "RefPack" if len(data) > 1 and data[1] == 0xFB else "?"
     c = Counter(data)
     printable = sum(1 for b in data if 32 <= b < 127)
-    print("%s  %d bytes (0x%X)  printable=%.0f%%" % (os.path.basename(args.file), n, n, 100 * printable / n))
+    print("%s  %d bytes (0x%X)  sig=%s  printable=%.0f%% (compressed view)"
+          % (os.path.basename(args.file), n, n, sig, 100 * printable / n))
     print("top bytes:", ", ".join("%02x:%d" % (b, k) for b, k in c.most_common(8)))
-    toks = tokens(data, 4)
-    ships = [s for _, s in toks if re.match(r"[a-z]{2,}_[a-z]", s) or "(" in s]
-    print("ASCII runs(>=4): %d   ship/object-name-like: %d" % (len(toks), len(ships)))
-    for needle in (b".ut", b".shp", b".fm8", b"Proximity", b"ShipReached", b"WIN", b"SUCCESS"):
-        k = len(re.findall(re.escape(needle), data))
-        if k:
-            print("  %-12r x%d" % (needle.decode(), k))
-    if args.strings:
-        for off, s in toks[:args.strings]:
-            print("  0x%05x  %s" % (off, s))
+    print("(use `decode` for the decompressed mission)")
 
 
 def cmd_sweep(args):
-    files = sorted(f for f in os.listdir(args.dir) if f.lower().endswith(".dte"))
-    print("sweeping %d .dte in %s\n" % (len(files), args.dir))
-    print("  %-16s %8s %6s %6s %6s %5s" % ("file", "bytes", "print%", "names", ".ut", "trig"))
-    tot = Counter()
+    files = sorted((f for f in os.listdir(args.dir) if f.lower().endswith(".dte")),
+                   key=lambda s: int("".join(ch for ch in s if ch.isdigit()) or 0))
+    print("decoding %d .dte in %s\n" % (len(files), args.dir))
+    print("  %-16s %5s %9s %6s %5s %5s %7s %6s" %
+          ("file", "sig", "image", "ships", "fg", "trig", "script", "flags"))
+    npass = 0
     for f in files:
-        data = open(os.path.join(args.dir, f), "rb").read()
-        n = len(data)
-        printable = 100 * sum(1 for b in data if 32 <= b < 127) / n
-        toks = tokens(data, 4)
-        names = sum(1 for _, s in toks if re.match(r"[a-z]{2,}_[a-z]", s))
-        uts = len(re.findall(rb"\.ut", data))
-        trig = len(re.findall(rb"Proximity|ShipReached|ARRIVES|GrabbedObject", data))
-        tot["bytes"] += n
-        print("  %-16s %8d %5.0f%% %6d %6d %5d" % (f, n, printable, names, uts, trig))
-    print("\n%d files, %d bytes total" % (len(files), tot["bytes"]))
+        try:
+            mis = Mission(open(os.path.join(args.dir, f), "rb").read())
+        except DTEError as e:
+            print("  %-16s  FAIL  %s" % (f, e))
+            continue
+        ok = all(off == EMPTY_OFF or off <= len(mis.image) for _, off, _ in mis.dir)
+        npass += 1 if ok else 0
+        print("  %-16s %5s %9d %6d %5d %5d %7d %5s0x%X"
+              % (f, "OK" if ok else "DIR?", len(mis.image), mis.count(3), mis.count(4),
+                 mis.count(5), mis.count(6), "", mis.reloc_flags))
+    print("\n%d/%d decoded (valid RefPack + 27-section directory)" % (npass, len(files)))
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Starlancer .DTE reference + inspector (read-only).")
+    ap = argparse.ArgumentParser(description="Starlancer .DTE decoder + reference (read-only, static).")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("ref"); p.add_argument("table", nargs="?", default="all",
                                               choices=["all", "triggers", "exec", "ai", "stream"])
     p.set_defaults(func=cmd_ref)
-    p = sub.add_parser("inspect"); p.add_argument("file"); p.add_argument("--strings", type=int, default=0)
+    p = sub.add_parser("decode", help="decompress + decode a mission")
+    p.add_argument("file"); p.add_argument("--limit", type=int, default=40,
+                                           help="max records/ops per section (0 = no cap)")
+    p.add_argument("--section", choices=["dir", "ships", "fg", "triggers", "script"],
+                   help="show only one section")
+    p.set_defaults(func=cmd_decode)
+    p = sub.add_parser("inspect"); p.add_argument("file")
     p.set_defaults(func=cmd_inspect)
     p = sub.add_parser("sweep"); p.add_argument("dir")
     p.set_defaults(func=cmd_sweep)
     args = ap.parse_args(argv)
-    args.func(args)
+    rc = args.func(args)
+    sys.exit(rc or 0)
 
 
 if __name__ == "__main__":

@@ -81,13 +81,31 @@ render (see §10).
 
 ## 6. Video — Bink
 
+Imports 11 `binkw32` entries (`BinkOpen`, `BinkDoFrame`, `BinkWait`, `BinkNextFrame`,
+`BinkCopyToBuffer`, `BinkClose`, `BinkSetSoundSystem`, `BinkOpenMiles`, `BinkSetFrameRate`,
+`BinkSetVolume`, `BinkGoto`, `BinkPause`). The four player wrappers share one play loop
+(`0x004AC510`: `BinkWait==0` → `BinkDoFrame`+`BinkCopyToBuffer`); each frame also polls input
+(`FUN_004BD570`) so **any keypress aborts** the movie.
+
 | Addr | Role | Evidence |
 |---|---|---|
-| `0x004ABDE0`, `0x004ABB80`, `0x004AB9D0`, `0x004AB850` | Bink movie players (clear / no-clear variants) | `play bink movie …`, `play landing movie …` |
+| `0x004ABDE0` | **Boot/intro dispatcher** (per-chapter opener) | branches on chapter `DAT_00562DC8`; opens the boot movies (below) |
+| `0x004ABD40` | Habitat-selector / intro transition | calls `FUN_0042FE00` with 6 habitat clips → `FUN_004ABB80` |
+| `0x004ABB80`, `0x004AB9D0` | Player, **from HOG** (clear / no-clear) | `_BinkOpen(*(DAT_005202D4+4), 0x800000)` — resource flag |
+| `0x004AB850`, `0x004AB6E0` | Player, **loose file** (clear / no-clear) | `_BinkOpen(name, 0x1000/0)` |
+| `0x004AC510` | Frame decode/render loop | `BinkDoFrame` → `BinkCopyToBuffer` |
 | `0x00439FB0` | Interface movie/VR host (`interface.cpp`) | `VR movie resource: error …`, many `*.bik` |
 | `0x004362F0` | Medal display | `MedalDisplay resource …`, `medal_d.spr` |
 | `0x0043BA40` | In-world TV / news screens | `news report resource …`, `b_tv_news.bik` |
 | `0x0048D030` | HUD movie (cockpit video) | `hudmovie init: load failed …` |
+
+**Boot movies** (opened from `CD1.HOG`/`CD2.HOG` via flag `0x800000`, *not* loose files):
+`warty_.bik` (Warthog), `new_dalogo_fs_uncmpr.bik` (Digital Anvil), `new_nms.bik`,
+`splash to mm.bik`, then `new_intro.bik` + per-chapter intro/landing clips. **A missing or
+zero-frame movie is tolerated** — `BinkOpen` returns NULL (logged, *not* fatal) or the
+end-of-video flag is set on frame 0, so the play loop exits immediately. This is why the
+"blank.bik" boot-skip works; `tools/blank_boot_videos.py` automates it (extract → version-matched
+blank → repack). See [`modern-fixes.md`](modern-fixes.md).
 
 ## 7. Input — DirectInput + force feedback
 

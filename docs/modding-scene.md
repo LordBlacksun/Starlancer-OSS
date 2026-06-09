@@ -5,6 +5,7 @@
 
 ## TL;DR — minimum viable modern-Windows boot
 Clean/NoCD exe (or test **SafeDiscShim**) + **dgVoodoo2** (DLLs from its `MS\x86`) + **Starlancer Crash Fix v1.0.1** + enable **DirectPlay**. Documented/tested on Win7 & Win10.
+→ **Step-by-step per-fix recipes** (each tagged by layer + backed by our RE where we have it): **[`modern-fixes.md`](modern-fixes.md)**.
 
 ## 1. Modern Windows (10/11) — does NOT run out of the box; fixable
 - **#1 blocker: SafeDisc v1 DRM** — relies on `secdrv.sys`, which Microsoft disabled (KB3086255) and removed on Win10/11. The protected exe won't launch. → https://www.pcgamingwiki.com/wiki/StarLancer , https://www.pcgamingwiki.com/wiki/SafeDisc
@@ -21,7 +22,7 @@ Clean/NoCD exe (or test **SafeDiscShim**) + **dgVoodoo2** (DLLs from its `MS\x86
 **Bug-fix patches (PCGamingWiki community files)**
 - **Starlancer Crash Fix v1.0.1** — fixes medal-case crash + forces single-core affinity (orig by Teleguy, hosted by Choum). https://community.pcgamingwiki.com/files/file/1952-starlancer-crash-fix/
 - **Starlancer DSound Fix** — DirectSound3D/EAX via Creative ALchemy / DSOAL. https://community.pcgamingwiki.com/files/file/1440-starlancer-dsound-fix/
-- **Blank intro videos** (esc0rtd3w) — skip problematic FMV. https://github.com/esc0rtd3w/blank-intro-videos/
+- **Blank intro videos** (esc0rtd3w) — skip problematic FMV. https://github.com/esc0rtd3w/blank-intro-videos/ — **now RE-backed + tooled:** the boot dispatcher `FUN_004ABDE0` opens `warty_.bik` / `new_dalogo_fs_uncmpr.bik` / `new_nms.bik` / `splash to mm.bik` / `new_intro.bik` **from the CD HOG** and tolerates zero-frame movies, so `tools/blank_boot_videos.py` blanks them in-archive (extract→version-matched blank→repack). See **[`modern-fixes.md`](modern-fixes.md) §1**.
 
 **Widescreen** — **NO proper Hor+ fix exists.** INI `Xres/Yres` only *stretches* 4:3; HUD/menus don't adapt. → **OPEN OPPORTUNITY.** https://www.wsgf.org/dr/starlancer/en
 

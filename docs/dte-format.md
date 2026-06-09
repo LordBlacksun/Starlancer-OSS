@@ -23,36 +23,43 @@ The full opcode/command/AI tables live in the companion
 A `.DTE` is one **mission**: a set of data sections (ships, triggers, globals, strings, …)
 plus a block of **trigger/event script bytecode** interpreted by an in-engine VM. It is data,
 never native code. `resource.hog` holds **44** of them (campaign `mission1..35`, the test set
-`mission191/251/271/311`, multiplayer `mission81..88`, and `mission29/99/801`). Raw HOG sizes
-run 4.4 KB–66 KB; our 44-file sweep (`dte_parse.py sweep`) shows consistent structure
-(campaign missions ~30–37 % printable; MP missions sparser).
+`mission191/251/271/311`, multiplayer `mission81..88`, and `mission29/99/801`). Compressed
+(RefPack) sizes run 4.4 KB–66 KB; each **decompresses to a fixed-layout image** (the main
+campaign template is `0xCFBE7` = 850,919 B). `dte_parse.py sweep` decodes all **44** cleanly;
+`dte_parse.py decode <m>` dumps the directory, ships, objectives, triggers, and a script
+disassembly.
 
 Path at load: `..\missions\%s.dte`. The engine reads a loose `missions\` file if present, else
 the HOG copy — so edited missions need not be repacked.
 
 ---
 
-## 2. File container  [PARTIALLY OPEN]
+## 2. File container  [RESOLVED]
 
-The loader is **`FUN_00451D90`**. It reads the whole file into a buffer via `FUN_0045A300`
-(≤ `0xFA000`; a straight copy — no decompression — with a `0x1A` EOF byte appended by
-`FUN_0045A3E0`; read failure → *"** IT'S A DISASTER! ** Emergency file saved to 'fatal.dte'"*).
-It then resolves **27 sections in a fixed order** via 27 calls to **`FUN_00452A20`**, each
-consuming an 8-byte descriptor `{ u16 count (+ four relocation-flag bits in the top byte),
-u32 offset }`, advancing the cursor 8 bytes, and fixing `offset` to a live pointer (`offset +
-base`).
+The HOG-stored `.dte` is **RefPack / EA "QFS" compressed** — signature `10 FB`, then a 3-byte
+big-endian uncompressed size (the standard EA codec, unsurprising since the HOG is EA's BIGF
+archive). `dte_parse.py` ships a clean-room RefPack decoder; all 44 files decompress with the
+produced length matching the header size exactly.
 
-> **Open caveat (verified by inspection of our files).** Decoding our HOG-extracted blobs as a
-> 27×8 descriptor table at offset 0 does **not** validate — the offset fields fall out of
-> range, and the first real data (records carrying inline name strings: `us_prowler`,
-> `sr_sabre`, `mammoth (ANS Guliver)`, pilot `ian.fm8`) begins at ~`0xB6`, with a `00 00 ff cc`
-> fill region at the tail. So either a header precedes the descriptor table or the HOG blob is a
-> packed form the engine expands before this directory applies. **Our HOG copies also differ
-> from Starlancer ME's working copies:** their mission1 anchors (`objects @0x30FF7`,
-> `events @0x47BF7`) lie far past our 29 KB (`0x714E`) EOF, and our copies reference speech by
-> index where theirs embed literal `.ut` filenames inline. The exact on-disk descriptor framing
-> for our copies is the chief unresolved container question; the **section semantics below are
-> verified from the loader and the consumers regardless.**
+The loader is **`FUN_00451D90`**. It obtains the bytes via `FUN_0045A300` — a loose
+`missions\%s.dte` if present (`FUN_004AD6E0` = `GetFileAttributes`), else the HOG resource
+(`FUN_004C5BD0` → `FUN_004C5BE0`, a straight read, *no* extra transform; a `0x1A` EOF byte is
+appended to loose reads by `FUN_0045A3E0`; read failure → *"** IT'S A DISASTER! ** Emergency
+file saved to 'fatal.dte'"*). The RefPack stream **expands into a fixed-layout image** (the
+`≤ 0xFA000` buffer is sized for it). The loader then walks a **27-entry, 8-byte directory at
+offset 0** of that image via 27 calls to **`FUN_00452A20`**, each reading `{ u16 count, byte
+relocation-flags @ bits 24-27, u32 offset }`, advancing the cursor 8 bytes, and fixing `offset`
+to a live pointer (`offset + image base`). `offset == 0xFFFF` marks an unused section.
+
+> **Cross-validation with Starlancer ME.** Decompressed, our `mission1` directory places ships
+> (objects) at `0x30FF7`, the FG/objective table at `0x3A7F7`, triggers at `0x3BBF7`, the event
+> script at `0x47BF7`, and the target list at `0x57BF7` — **identical, to the byte**, to Captain
+> Foster's black-box anchors. The blog's "offsets" are positions in exactly this decompressed
+> image; the two efforts now agree completely. (The earlier "our copies differ / offsets out of
+> range / inline `us_prowler` at `0xB6`" puzzle was just the compression: our extracted blob is
+> the *packed* form, theirs the *expanded* one.) Relocation-flag patterns and image sizes vary by
+> template — `0xF` flags / `0xCFBE7` bytes for the campaign, `0x1/0x3/0x7` flags and smaller
+> images for some multiplayer / instant-action missions — but the directory format is uniform.
 
 ### The 27 sections (load order, with destination globals)
 
@@ -79,14 +86,18 @@ base`).
 
 ## 3. Data records
 
-**Ship / flight-group** (stride `0x4C` = 76 B; `DAT_0052951C`, count `DAT_00529504`). Field
-map from the load-time mirror `FUN_00452010`/`FUN_004520A0` and the arm loop `FUN_0045CBC0`:
-position vector at `+0x14` (3×`float`); orientation **yaw/pitch/roll** at `+0x26`/`+0x32`/`+0x42`
-(`u16` angles); type/role code at `+0x18` (special objects compared vs `0x3E3`–`0x3E5`/`999`);
-flag byte `+0x17` (bit0 = disabled); ship-type/sub-object model indices via `FUN_004571D0` into
-`&DAT_00587CE0`. Coordinates are IEEE-754 floats. This mirrors Starlancer ME's colour-coded
-object record (coords, flight-group #, pilot/IFF, ship #, launch origin, gate #). *(Full 76-byte
-map incl. the IFF field and waypoint sub-arrays — partial; see §Open.)*
+**Ship / flight-group** (stride `0x4C` = 76 B; `DAT_0052951C`, count `DAT_00529504`). Field map
+verified by decoding all 44 (`dte_parse.py decode --section ships`) plus the load-time mirror
+`FUN_00452010`/`FUN_004520A0` and the arm loop `FUN_0045CBC0`: flight-group # at `+0x00`; **name
+index** `u16` at `+0x04` (→ string pool, e.g. `Player_Ship`, `(A1)Naginata`, `(WL)Viper's
+Coyote`); **position vector** (3×`float`) at `+0x08` — the *runtime* copy, mirrored at load from
+the *authored* position at `+0x1C` by `FUN_00452010`; IFF/team byte at `+0x15`; type/role code at
+`+0x18` (special objects compared vs `0x3E3`–`0x3E5`/`999`); flag byte `+0x17` (bit0 = disabled);
+ship-type/sub-object model indices via `FUN_004571D0` into `&DAT_00587CE0`. Coordinates are
+IEEE-754 floats. This mirrors Starlancer ME's colour-coded object record (coords, flight-group #,
+pilot/IFF, ship #, launch origin, gate #). *(Orientation angles not yet pinned — the earlier
+guess `+0x26`/`+0x32`/`+0x42` falls inside the `+0x1C` position copy; waypoint/goal sub-arrays
+also open — see §Open.)*
 
 **Globals / variables** (stride `0x0C`; `DAT_005294F8`): `u16 nameIdx`, `u32 value`. Read/written
 by script opcodes `0x27`/`0x40`.
@@ -197,15 +208,15 @@ SUCCESS vs FAIL (playing `…_001.ut` vs `…_002.ut`). `TerminateMission` ends 
 | `0x27`/`0x40`/`0x3F` | Their behavioural read-mem/write-mem/jump ≡ our static read-global / global-lvalue / array-lvalue. |
 | AI codes (`0x32`), ship/pilot IDs | Their tables (we have not re-derived these numerically; adopted with credit). |
 | Win/lose, default-fail, carrier-landing tree | Their **runtime semantics** (observed in-game) — a layer pure disassembly lacks. |
-| File container offsets | **Differ** — their copies are larger / inline-speech; ours are HOG blobs, speech-by-index. Offset maps are **not** cross-transferable; the *semantic* tables are. |
+| File container offsets | **Exact match (resolved).** Their offsets = positions in our *decompressed* (RefPack) image: `ships 0x30FF7`, `events 0x47BF7`, `targets 0x57BF7` all coincide to the byte. The packed-vs-expanded form was the only difference. |
 | Outcome tiers | We correct to **0–4** (five); resolved the count. |
 
 ---
 
 ## 10. Open items
 
-* Exact on-disk descriptor framing of our HOG `.dte` blobs (header? packed/expanded form?).
-* Full 76-byte ship record (IFF/faction field, waypoint/goal sub-arrays).
+* Full 76-byte ship record (orientation angles, waypoint/goal sub-arrays) beyond the verified
+  fg#/name/position/IFF/type fields.
 * Record layouts of directory sections 9, 14–20, 22–26 (curves, routes, regions, comms, debris).
 * The 6 blog-only Executor entries' implementations (`WaitNSeconds`, `GTextPilotDefine`,
   `RadiusOfSphere`, `ShipToDock`, `ShipPointToFlyTo`, `EntityToCloak`).
