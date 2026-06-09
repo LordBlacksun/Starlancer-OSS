@@ -57,6 +57,18 @@ tables (editor + GUI), the Coalition ship-switcher, and the `.DTE` mission forma
 trigger VM + the full scripting opcode/command reference). In progress: modern-Windows /
 widescreen (Hor+) work on the Direct3D 7 renderer, and the `.SHP` ship-model format.
 
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). The one hard rule: **never
+commit game data** (binaries, assets, or decrypted/derivative game files); a `.gitignore` plus a
+pre-commit guard enforce it.
+
+## AI transparency
+
+This project is, by design, **AI-assisted reverse engineering** — essentially all of its code and
+documentation were written by Anthropic's Claude under human direction. See
+[AI-TRANSPARENCY.md](AI-TRANSPARENCY.md) for the full implementation disclosure.
+
 ## Credits
 
 - `.HOG` / `BIGF` format originally reverse-engineered by **DraconPern & KingLord** (the *SLExtract* tool).
