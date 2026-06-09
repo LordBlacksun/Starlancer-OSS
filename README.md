@@ -78,4 +78,8 @@ documentation were written by Anthropic's Claude under human direction. See
 
 ## License
 
-[MIT](LICENSE).
+Copyright (C) 2026 LordBlacksun.
+
+Free software under the **GNU General Public License v3.0 only** — see [LICENSE](LICENSE). You may
+use, modify, and redistribute it under those terms; derivative works must also be released under
+the GPL, so improvements come back to the community.
