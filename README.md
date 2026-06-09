@@ -16,6 +16,7 @@ Open-source reverse-engineering tools and documentation for **Starlancer**
 | [`docs/stats-format.md`](docs/stats-format.md) | `SHIP/GUN/MISSILESTATS.BIN` — 352-byte stat record layout. |
 | [`docs/dte-format.md`](docs/dte-format.md) | `.DTE` mission format: **RefPack** container, trigger system, scripting VM. |
 | [`docs/dte-scripting-reference.md`](docs/dte-scripting-reference.md) | Complete trigger / Executor-command / AI-code / opcode tables. |
+| [`docs/campaign-flow.md`](docs/campaign-flow.md) | Campaign mission flow: progression rule, in-game↔`.dte` numbering, the 24-mission map. |
 | [`docs/engine-map.md`](docs/engine-map.md) | Engine architecture: middleware stack + per-subsystem address map. |
 | [`docs/modding-scene.md`](docs/modding-scene.md) | Community modding tools, the widescreen gap, and DRM notes. |
 | [`docs/modern-fixes.md`](docs/modern-fixes.md) | Modern-Windows fix catalogue (boot-video skip, wrappers, widescreen, DRM, audio …) — RE-backed. |
