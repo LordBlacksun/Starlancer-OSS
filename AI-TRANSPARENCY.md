@@ -6,13 +6,13 @@ This document is an honest, complete disclosure of how this project was built.
 
 **Essentially all of the code and documentation in this repository was written by an AI
 assistant — Anthropic's Claude (the Opus model family, primarily via Claude Code) — working
-under the direction and review of the repository owner.** This is, by design, an experiment in
+under the direction and review of the repository owner, LordBlacksun.** This is, by design, an experiment in
 AI-assisted reverse engineering, published in that spirit. We state it plainly so users and
 contributors can calibrate trust accordingly.
 
 ## Who did what
 
-**Human (repository owner):**
+**Human — LordBlacksun (repository owner):**
 - Owns a legal copy of Starlancer and provided the legally-owned files used for analysis.
 - Set the goals, priorities, and scope; made the decisions and judgment calls.
 - Directed the work, reviewed the output, ran the local tooling (e.g. Ghidra), and approved each
