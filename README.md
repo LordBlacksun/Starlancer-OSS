@@ -20,6 +20,7 @@ Open-source reverse-engineering tools and documentation for **Starlancer**
 | [`docs/engine-map.md`](docs/engine-map.md) | Engine architecture: middleware stack + per-subsystem address map. |
 | [`docs/modding-scene.md`](docs/modding-scene.md) | Community modding tools, the widescreen gap, and DRM notes. |
 | [`docs/modern-fixes.md`](docs/modern-fixes.md) | Modern-Windows fix catalogue (boot-video skip, wrappers, widescreen, DRM, audio …) — RE-backed. |
+| [`docs/game-reference/`](docs/game-reference/) | **Game content reference** — ships, fighters, characters, the full campaign, factions and weapons. Compiled from the [Starlancer Fandom Wiki](https://starlancer.fandom.com/) (CC BY-SA 3.0) and cross-checked against our RE. |
 
 See also the [project wiki](https://github.com/LordBlacksun/Starlancer-OSS/wiki) for the engine reference.
 
@@ -82,6 +83,12 @@ documentation were written by Anthropic's Claude under human direction. See
 - Mission (`.DTE`) opcode / trigger / ship-ID tables and observed in-game semantics by
   **Captain Foster / Starlancer ME** — <https://starlancerme.blogspot.com/> ·
   [@CaptainFoster](https://www.youtube.com/@CaptainFoster).
+- The **game content reference** ([`docs/game-reference/`](docs/game-reference/)) — ship/weapon
+  stats, the character roster, mission/campaign details, faction lore, ranks and medals — is compiled
+  from the community-run **[Starlancer Wiki on Fandom](https://starlancer.fandom.com/)** and its
+  contributors, used under **[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/)**. Those
+  reference pages are offered under the same CC BY-SA 3.0 terms; the rest of the repository remains
+  GPL-3.0. With thanks to the Starlancer Wiki editors.
 
 ## License
 
