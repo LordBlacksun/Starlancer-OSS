@@ -1,0 +1,4 @@
+# Git hooks and shell scripts must check out with LF so MSYS /bin/sh
+# (Git for Windows) can run them — CRLF would break the `#!/bin/sh` line.
+.githooks/** text eol=lf
+*.sh         text eol=lf
