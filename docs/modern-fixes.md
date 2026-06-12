@@ -119,11 +119,38 @@ reticle, screen centre — already auto-derives from width/height, so it adapts)
 
 ---
 
-## 4. Frame-rate cap (~100 FPS)  · EXE · *open*
+## 4. Frame-rate cap (~100 FPS)  · WRAP (not EXE) · *root cause RE'd 2026-06-12*
 
-No community fix is documented; the cap appears hardcoded and would need an EXE patch to the
-timer/frame loop. Flagged as an **open opportunity** alongside widescreen. **Layer:** EXE.
-**Status:** UNCONFIRMED root cause (timer routine not yet pinned).
+**Finding (static RE): there is no in-EXE frame limiter to patch. The ~100 is the game's
+simulation timebase, and the render cap is vsync in the renderer DLL.** Raising the timer would
+speed up the whole game, so we deliberately ship no "FPS patch"; the safe uncap is a wrapper
+setting, and game *logic* already stays correct at any render rate.
+
+How it actually works (see `engine-map.md` → *Timer subsystem*):
+
+- A **100 Hz multimedia timer** is the heartbeat. `FUN_00481440` registers it via
+  `FUN_004a70f0` with the frequency in `ecx`: `mov ecx, 0x64` at **`0x00481689`** → period
+  `1000/100 = 10 ms` passed to `timeSetEvent` (callback `FUN_004a6f80` → `LAB_004827c0`).
+- That callback is the **simulation clock**: it increments `DAT_00565064` (the master clock, in
+  **centiseconds**) and `DAT_005db8e8` (a raw tick counter). **~141 gameplay/AI sites** schedule
+  off `DAT_00565064` with **literal centisecond constants** (`+500` = 5 s, `+1000` = 10 s,
+  `+0x19` = 0.25 s, `+0x32` = 0.5 s …). So the 100 Hz is *baked into data semantics* — change it
+  and every timer, animation and AI cadence rescales (the game runs faster/slower). **Not an FPS
+  knob.**
+- **Logic is already decoupled from render.** The main loop (`FUN_004aab20`) calls the
+  fixed-timestep **catch-up executor `FUN_004a6f00`**, which advances each logic timer by the
+  *real elapsed* number of steps (clamped to 50). Logic therefore runs at its true real-time rate
+  no matter how fast or slow frames are drawn. Render is **not** throttled inside `lancer.exe`
+  (no per-frame `Sleep`, no busy-wait on the tick).
+- The **render cap is vsync** in the **DirectDraw / Direct3D 7 present path inside the external
+  `srddraw.dll`** — not visible to a static patch of `lancer.exe`.
+
+**Fix (wrapper layer):** run under **dgVoodoo2** or **DDrawCompat** with **VSync disabled** (or a
+forced higher refresh). Because of the catch-up executor, frames above 100 FPS render correctly
+and gameplay speed is unchanged. **Tool:** `sl_patch.py --fps N` prints this finding and the
+recipe (it intentionally applies no patch). **Layer:** WRAP. **Source:** our static RE
+(decompiled timer subsystem) + community wrappers. **In-game verification** (does vsync-off give
+>100 FPS at correct speed) is the community's.
 
 ---
 

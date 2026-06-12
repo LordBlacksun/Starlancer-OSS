@@ -43,6 +43,39 @@ late-1990s middleware SDKs:
 | `0x004ACBE0` | Device init / fatal path | `Fatal error initializing`, `Device`, `Windowed` |
 | `0x0045E670` | Generic fatal error box | `Fatal Error` |
 
+### 2a. Timer subsystem / frame pacing (`lancer\game\timer.cpp`)  — *RE'd 2026-06-12*
+
+The whole game runs on a **100 Hz multimedia timer**, and this is the *simulation* timebase — **not**
+a render limiter (the ~100 FPS users see is renderer vsync, see §3 / `modern-fixes.md` §4). Timer
+records are **8-dword (0x20 B)** nodes in the table `&DAT_00595c08` (≤ 0x14 entries, walked to
+`< 0x595c58`):
+
+| Node off | Field |
+|---|---|
+| `+0x00` | tick counter (callback bumps it) |
+| `+0x04` | re-entrancy lock (`InterlockedExchange`) |
+| `+0x08` | `timeSetEvent` id (mode-0 only) |
+| `+0x0C` | **callback fn ptr** |
+| `+0x14` | catch-up accumulator (mode-1) |
+| `+0x18` | timer frequency in Hz (mode-1) |
+| `+0x1C` | mode: `0` = winmm-thread, `1` = main-thread catch-up |
+
+| Addr | Role | Notes (from disasm) |
+|---|---|---|
+| `0x004A70F0` | **register mode-0 timer** | true ABI (Ghidra mis-typed it): `ecx`=Hz, `edx`=min resolution, callback pushed on stack → node`+0x0C`; `uDelay = 1000/ecx`; `timeSetEvent(uDelay, res, FUN_004a6f80, node, TIME_PERIODIC)`. Fires on the **winmm timer thread**. |
+| `0x004A7060` | register mode-1 timer | no `timeSetEvent`; accumulator `+0x14 = DAT_00565064·Hz·10`, mode `+0x1C=1`. Driven by the executor. |
+| `0x004A6F00` | **catch-up executor** | called once per `FUN_004aab20`; for each mode-1 node runs the callback `(Hz·clock·10 − acc)/1000` times, **clamped to `0x32` (50)**. ⇒ logic advances in real time, decoupled from frame rate. |
+| `0x004A6F80` | timer dispatch | mode-0 path takes the `InterlockedExchange` lock (guards re-entry of *that* timer only — **not** vs the main thread); mode-1 path runs lockless. |
+| `0x004A71F0` | kill timer | spins on the lock (≤ 500 × `Sleep(2)`) then `timeKillEvent`. |
+| `0x00481440` | **clock registration** | `mov ecx,0x64` @ **`0x00481689`** (= 100 Hz, period 10 ms) registering callback `LAB_004827C0`. Resets `DAT_00565064=0` first. |
+| `0x004827C0` | **master clock callback** | `inc DAT_005db8e8` (raw ticks); `inc DAT_00565064` (master clock, **centiseconds**); maintains BCD sub-fields `DAT_00565070/72/74` (cs→s→min, rollovers at 100/0x3a/0x3a). |
+
+**Globals:** `DAT_00565064` master clock (centiseconds, 100 Hz); `DAT_005db8e8` raw tick counter;
+both are timestamps for ~141 gameplay/AI deadlines that use **literal centisecond offsets**
+(`+500`=5 s, `+0x19`=0.25 s …) — so the 100 Hz is baked into data semantics and must not be changed.
+The mode-0 callback running on the winmm thread, concurrent with the main thread, is also the prime
+suspect for the multi-core crash (see §16 / `modern-fixes.md` §5).
+
 ## 3. Renderer — Surrender over DirectDraw/Direct3D 7
 
 The render path is **Surrender → `srddraw.dll` → DirectDraw/Direct3D 7**. Display-mode selection and

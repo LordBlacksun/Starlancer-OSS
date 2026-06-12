@@ -12,10 +12,13 @@ NEVER executes the target - it reads and writes a *local copy* as data only.
 Fixes (toggle with the flags below):
   widescreen WxH   native Hor+ widescreen for the in-flight 3D view (the v1 patch,
                    absorbed verbatim from ws_patch.py - byte-identical output).
-  fps N            raise the engine frame-cap to ~N FPS (configurable; fixed-step
-                   timer design preserved). [Phase B - site TBD by RE]
   fix-medal        fix the late-campaign medal-case crash. [Phase C - TBD by RE]
   fix-multicore    stop the multi-core crash (self-affinity). [Phase C - TBD by RE]
+
+  --fps N          NOT an EXE patch. Static RE showed the ~100 FPS cap is the
+                   game's 100 Hz *simulation* timebase (raising it speeds up the
+                   whole game) + vsync in srddraw.dll - so this flag only explains
+                   the finding and the wrapper-based uncap. See modern-fixes.md s4.
 
 DESIGN
   * PatchDefinition registry: each fix declares its hook sites (VA + original
@@ -245,10 +248,46 @@ WIDESCREEN = PatchDefinition(
 
 
 # --------------------------------------------------------------------------------
-# FIX 2/3: fps / fix-medal / fix-multicore - registered in later phases.
-# Their PatchDefinitions slot in here once the RE has pinned exact sites and
-# fingerprints. The engine below is already fix-agnostic.
-# --------------------------------------------------------------------------------
+# FIX 2/3: fix-medal / fix-multicore - registered in Phase C once the RE has
+# pinned exact sites and fingerprints. The engine below is already fix-agnostic.
+#
+# FPS NOTE (no EXE patch - by design, backed by static RE; see docs/modern-fixes.md
+# section 4 and docs/engine-map.md "Timer subsystem"):
+#   The ~100 FPS the community sees is NOT an in-EXE frame limiter. The 100 Hz
+#   multimedia timer (set by `mov ecx, 0x64` at VA 0x00481689, period
+#   1000/100 = 10 ms via timeSetEvent) is the game's hardcoded *simulation*
+#   timebase: it drives the master clock DAT_00565064 (centiseconds) and the
+#   tick counter DAT_005db8e8, which ~141 gameplay/AI deadline sites reference
+#   with *literal* centisecond constants (e.g. +500 = 5 s, +0x19 = 0.25 s).
+#   Raising that constant rescales the whole game (everything runs faster) - a
+#   footgun, not an FPS fix, so sl_patch deliberately ships no such patch.
+#   Game LOGIC is already decoupled from render by the fixed-timestep catch-up
+#   executor FUN_004a6f00 (it runs each logic timer at its own real-time Hz,
+#   clamped to 50 catch-up steps), so render may exceed 100 FPS with logic
+#   staying correct. The render cap itself is the DirectDraw/D3D7 present
+#   (vsync) inside the external srddraw.dll - not patchable in lancer.exe.
+#   Uncap it at the wrapper layer: dgVoodoo2 / DDrawCompat with vsync disabled
+#   (or a forced higher refresh).
+
+
+def fps_advisory(requested=None):
+    want = f" (you asked for ~{requested} FPS)" if requested else ""
+    print(f"sl_patch: no EXE frame-cap patch is applied{want} - and that is deliberate.")
+    print("")
+    print("  Static RE finding: Starlancer's ~100 FPS is not an in-EXE limiter. The")
+    print("  100 Hz multimedia timer (mov ecx,0x64 @ 0x00481689 -> 10 ms period) is the")
+    print("  game's SIMULATION timebase - the master clock DAT_00565064 (centiseconds)")
+    print("  that ~141 gameplay/AI deadlines use with literal constants. Raising it")
+    print("  speeds up the entire game, so we refuse to ship that as an 'FPS fix'.")
+    print("")
+    print("  Game logic is already decoupled from render (the catch-up executor")
+    print("  FUN_004a6f00 advances logic in real time regardless of frame rate), so you")
+    print("  CAN exceed 100 FPS safely - the cap is vsync in the DirectDraw/D3D7 present")
+    print("  inside srddraw.dll, outside lancer.exe. Remove it at the wrapper layer:")
+    print("    * dgVoodoo2 or DDrawCompat with VSync = off (or a forced higher refresh).")
+    print("  See docs/modern-fixes.md section 4 for the full write-up.")
+    return 0
+
 
 REGISTRY = {d.id: d for d in [WIDESCREEN]}
 
@@ -525,7 +564,8 @@ def main(argv):
     ap.add_argument("--widescreen", metavar="WxH", type=_parse_wxh,
                     help="native Hor+ widescreen for the flight view, e.g. 1920x1080")
     ap.add_argument("--fps", type=int, metavar="N",
-                    help="raise the frame-cap to ~N FPS (30..360) [Phase B]")
+                    help="explain the frame-cap (no EXE patch exists - it is a vsync/"
+                         "srddraw matter; static RE write-up + wrapper recipe)")
     ap.add_argument("--fix-medal", action="store_true",
                     help="fix the late-campaign medal-case crash [Phase C]")
     ap.add_argument("--fix-multicore", action="store_true",
@@ -562,11 +602,10 @@ def main(argv):
             print(f"warning: {w}x{h} is outside the sane 320x240..7680x4320 range", file=sys.stderr)
         selections.append(("widescreen", dict(width=w, height=h)))
     if a.fps is not None:
-        if "fps" not in REGISTRY:
-            ap.error("--fps is not yet available in this build (Phase B pending).")
-        if not (30 <= a.fps <= 360):
-            ap.error("--fps must be in 30..360")
-        selections.append(("fps", dict(fps=a.fps)))
+        # Backed by static RE: there is no safe in-EXE frame-cap patch (the 100 Hz
+        # timer is the sim timebase). Explain + point to the wrapper path; patch
+        # nothing. (See the FPS NOTE above / docs/modern-fixes.md section 4.)
+        return fps_advisory(a.fps)
     want_medal = a.fix_medal or a.fix_crashes or a.all
     want_mc = a.fix_multicore or a.fix_crashes or a.all
     if want_medal:
