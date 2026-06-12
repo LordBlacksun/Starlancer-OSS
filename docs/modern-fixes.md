@@ -252,6 +252,29 @@ The engine uses **Miles** (`mss32.dll`). For DirectSound3D/EAX surround on moder
 
 ---
 
+## 9b. Modern game controllers — XInput shim  · WRAP (proxy DLL) · *our fix, 2026-06-12*
+
+Starlancer is **DirectInput-only** and predates **XInput**, so a modern Xbox-style pad works only
+through DInput's legacy path — which **merges LT/RT onto one shared Z axis** (no separate triggers)
+and offers no rumble. Confirmed by RE (`engine-map.md` §7): the game opens an `IDirectInput7A` and
+reads the stick via `Poll` + `GetDeviceState(DIJOYSTATE)`; **keyboard and mouse also go through
+`dinput.dll`**.
+
+- **`tools/xinput_shim/` — a proxy `dinput.dll`** (drop it next to `lancer.exe`; DInput is loaded by
+  name so the local copy wins). It **forwards keyboard + mouse to the real DirectInput untouched** and
+  **synthesizes the joystick from XInput** with **separate triggers** (`lRx`=LT, `lRy`=RT), both
+  sticks, the D-pad as a POV hat, and the buttons (mapping configurable via `xinput_shim.ini`).
+  Reporting no force feedback steers the game onto its clean no-FF path, so v1 needs no effect objects.
+  Built 32-bit with MSVC (`build.bat`); structurally verified with our own `test_host.exe` (drives the
+  exact COM sequence with no pad → clean neutral state). **No-rumble v1**; translating the game's
+  per-weapon `.frc` effects to XInput vibration is deferred.
+- **External alternatives** (no build): **Steam Input**, or a generic DInput↔XInput wrapper such as
+  **Xidi** (also a proxy `dinput.dll`). Easiest if you don't want to build ours.
+
+**Layer:** WRAP. **Source:** our RE + native shim. **In-game verification is the community's.**
+
+---
+
 ## 10. Config & file locations  · reference
 
 - **`starlancer.ini`** (game root, plain text) — main user config: `Xres`/`Yres`, a `[Device]`

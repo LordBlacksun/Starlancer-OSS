@@ -155,6 +155,22 @@ opt-in) via extract → version-matched blank → repack. See [`modern-fixes.md`
 | `0x004BD800` | Force-feedback effect table | per-weapon `*.frc`: `pc/mb/prc/gl/tc/np/cg/gp/vb/nc frc`, `Missile frc`, `Shake frc`, `The FF effects file error` |
 | `0x0047BDB0` / `0x00496290` | FF effect playback | `Joystick effect failed to start` |
 
+**DirectInput surface (verified by disasm 2026-06-12 — corrects the earlier "DI 3.0 via
+LoadLibrary" note).** The exe **statically imports `DINPUT.DLL::DirectInputCreateEx`** (thunk
+`0x004BFC10`). Init `FUN_004BCD90` calls `DirectInputCreateEx(hinst, dwVersion=0x0700,
+riid=IID_IDirectInput7A @0x4DCFB8, &DAT_005DDD18)` ⇒ root **`IDirectInput7A`**. It then creates
+three devices as **`IDirectInputDevice7A`** (IID @0x4DCFA8) — **keyboard** (`GUID_SysKeyboard`,
+`DAT_005DDD1C`), **mouse** (`GUID_SysMouse`, `DAT_005DDD20`), and **joystick** (`DAT_005DDD24`).
+So keyboard + mouse **both go through `dinput.dll`** (not the Win32 message queue). The joystick is
+found via `root->EnumDevices(type=4 = DIDEVTYPE_JOYSTICK, cb=LAB_004BD190, flags=0x101)`; if none
+(no FF device) it retries with `flags=1` and clears the FF flag. The callback `CreateDeviceEx`s the
+pad, `SetDataFormat`(c_dfDIJoystick), `SetCooperativeLevel`, `GetCapabilities` (reads dwButtons/
+dwPOVs), `EnumObjects`→`SetProperty(DIPROP_RANGE, −1000..1000)`, `SetProperty(DIPROP_AUTOCENTER)`.
+Runtime read (`FUN_004BD300`): `Poll()` (vtable +0x64) then `GetDeviceState(0x50)` (+0x24) into a
+standard 80-byte **`DIJOYSTATE`**. `FUN_004778C0` is only a DI version/capability **probe**, not the
+creation path. **Modern-systems fix:** a proxy `dinput.dll` (`tools/xinput_shim/`) forwards kbd/mouse
+to the real DInput and synthesizes the joystick from **XInput** with separate triggers (no-rumble v1).
+
 ## 8. Assets, game objects & combat
 
 **Asset loading.** The `.HOG` (EA BIGF) archives back everything; ships are `.SHP`, sprites `.SPR`,

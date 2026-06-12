@@ -37,6 +37,12 @@ __pycache__/
 *.pyc
 *.pyo
 *.slpatch.json     # sl_patch sidecar manifests (only ever beside a patched local exe)
+# native build artifacts (the xinput_shim is published as SOURCE only)
+*.obj
+*.lib
+*.exp
+*.ilk
+*.pdb
 
 # OS / editor
 Thumbs.db

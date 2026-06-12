@@ -1,0 +1,9 @@
+; Exported entry points for the proxy dinput.dll. The game statically imports
+; DirectInputCreateEx (so it MUST exist or the process won't load) and also
+; dynamically GetProcAddress's DirectInputCreateA; DirectInputCreateW is exported
+; defensively. Undecorated names (the .def overrides the __stdcall @N decoration).
+LIBRARY dinput
+EXPORTS
+    DirectInputCreateA
+    DirectInputCreateW
+    DirectInputCreateEx
