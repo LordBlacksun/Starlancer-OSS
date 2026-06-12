@@ -4,7 +4,10 @@ Actionable fixes for running and improving Starlancer on Windows 10/11, each tag
 (what it touches) and, where we have it, backed by our own **static RE** of the decrypted
 executable (ImageBase `0x400000`). This is the *how-to* companion to
 [`modding-scene.md`](modding-scene.md) (the scene/landscape overview) and
-[`engine-map.md`](engine-map.md) (the subsystem address map).
+[`engine-map.md`](engine-map.md) (the subsystem address map). For an **ordered, end-to-end setup
+walkthrough** (what to install in what order, the final folder layout, and a troubleshooting map),
+see [`running-on-modern-windows.md`](running-on-modern-windows.md); this file is the per-fix detail
+behind it.
 
 > ⚖️ **You must own a legal copy.** Nothing here distributes the game, its assets, or any DRM
 > circumvention. Fixes that patch/replace game files operate on **your** install — keep patched

@@ -30,6 +30,7 @@ Open-source reverse-engineering tools and documentation for **Starlancer**
 |------|-------------|
 | [`docs/engine-map.md`](docs/engine-map.md) | Engine architecture: middleware stack + per-subsystem address map. |
 | [`docs/modern-fixes.md`](docs/modern-fixes.md) | Modern-Windows fix catalogue (boot-video skip, wrappers, **native Hor+ widescreen**, DRM, audio …) — RE-backed. |
+| [`docs/running-on-modern-windows.md`](docs/running-on-modern-windows.md) | **Setup checklist & folder layout** — ordered, end-to-end guide to running your owned copy on Win10/11 (DRM, wrappers, our patches, controller, DirectPlay) + troubleshooting map. |
 | [`docs/modding-scene.md`](docs/modding-scene.md) | Community modding tools, the widescreen gap, and DRM notes. |
 
 **Game content reference**
@@ -62,7 +63,7 @@ launch the game.
 **Modern-systems fixes** (patch a *local copy* of your own exe / `.HOG` — never the original, never run)
 | Path | Description |
 |------|-------------|
-| [`tools/sl_patch.py`](tools/sl_patch.py) | **Modern-systems patch pack** — one declarative code-cave engine that applies any subset of the static EXE fixes (`--widescreen WxH` native Hor+ today; FPS-cap and crash fixes landing) with a sidecar manifest and per-fix `--verify` / `--revert` / `--revert-only`. |
+| [`tools/sl_patch.py`](tools/sl_patch.py) | **Modern-systems patch pack** — one declarative code-cave engine applying any subset of the static EXE fixes (`--widescreen WxH` Hor+, `--fix-medal`, `--fix-multicore`) with a sidecar manifest and per-fix `--verify` / `--revert` / `--revert-only`. (`--fps` explains the cap; it's a vsync/wrapper matter, not an exe patch.) |
 | [`tools/ws_patch.py`](tools/ws_patch.py) | **Deprecated alias** for `sl_patch.py --widescreen` — keeps the old `--width/--height` CLI working (byte-identical output). |
 | [`tools/blank_boot_videos.py`](tools/blank_boot_videos.py) | Skip the boot Bink movies by blanking them in a `.HOG`. |
 | [`tools/xinput_shim/`](tools/xinput_shim) | **XInput controller shim** — a proxy `dinput.dll` (C, 32-bit) that forwards keyboard/mouse to real DirectInput and synthesizes the joystick from XInput with **separate triggers** (no-rumble v1). Source + `build.bat` + test host. |
