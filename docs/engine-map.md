@@ -266,13 +266,15 @@ All static EXE fixes now ship from one tool, **`tools/sl_patch.py`** (declarativ
   native-widescreen menus + repositioning the 320×240-grid flight widgets (`0x00494040`).
 - **Frame cap (`--fps`): no EXE patch by design** — the 100 Hz is the *simulation* timebase (§2a),
   not a render limiter; the cap is renderer vsync (`srddraw.dll`). See `modern-fixes.md` §4.
-- **Medal-case crash (`--fix-medal`): ROOT-CAUSED + fixed.** Host `FUN_004362f0` (`0x004362F0`):
-  late-campaign branch (mission index `DAT_00562dc8 ≥ 0x13`) opens the medal "lid" Bink at
-  `0x004365EC` into the wrong global `DAT_005d6c40` (the comm-video handle) instead of the medal
-  handle `DAT_0051d7e8` that the wait (line 20509), render callback `FUN_00436b20`, and close
-  (`0x004365EC`-adjacent) all use ⇒ dangling/NULL handle ⇒ crash. Fix = restore the store operand to
-  `DAT_0051d7e8` (matches the early branch). Per-frame medal render callback is `FUN_00436b20`
-  (installed at `*(DAT_00588730 + 0x88)`).
+- **Medal-case crash (`--fix-medal`): ROOT-CAUSED + fixed.** Trigger = the bunk/ready-room **medal-case
+  click** — the ready-room menu `FUN_00439fb0` (case 6) calls the medal-case display `FUN_004362f0`
+  (`0x004362F0`). Every medal Bink video must live in the medal handle `DAT_0051d7e8` (used by the
+  wait @ line 20509, the render callback `FUN_00436b20` installed at `*(DAT_00588730 + 0x88)`, and the
+  closes). Of the four `_BinkOpen` store sites, only lid-up-early (`0x00436669`) is correct; three were
+  copy-pasted storing into the wrong global `DAT_005d6c40` (comm-video handle): `0x004365EC` (lid-up
+  late), `0x0043698F` (lid-down early), `0x00436A0B` (lid-down late) — each followed by a `mov
+  eax,[0x51d7e8]; cmp` that validates the *other* global, proving intent. Late-campaign hard-crashes on
+  open; early merely glitches on close. Fix = restore all three stores to `DAT_0051d7e8`.
 - **Multi-core crash (`--fix-multicore`):** the WINMM timer thread races the main thread (§2a); the
   fix is a self-affinity cave at the OEP (`0x004D1210`) calling `SetProcessAffinityMask(self, 1)`
   (resolved via `GetModuleHandleA`/`GetProcAddress`). A *pin*, not a cure. See `modern-fixes.md` §5.

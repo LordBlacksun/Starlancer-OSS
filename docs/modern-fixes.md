@@ -185,17 +185,24 @@ the crashes) is the community's.
 
 ## 6. Crashes — medal case & general stability  · EXE (`sl_patch --fix-medal`) · *2026-06-12*
 
-- **Medal-case crash — ROOT-CAUSED + fixed.** The medal-ceremony host `FUN_004362f0` plays a Bink
-  "lid" movie. The early-campaign branch (mission index `DAT_00562dc8 < 0x13`) opens it into the
-  medal handle `DAT_0051d7e8` and waits/renders/closes that handle. The **late-campaign branch
-  (≥ 0x13) is a copy whose store operand was never updated**: at `0x004365EC` it opens into
-  `DAT_005d6c40` (the *in-flight comm-video* global) instead, leaving `DAT_0051d7e8` stale/closed —
-  so `_BinkWait(DAT_0051d7e8)` runs on a dangling/NULL handle and crashes. This is exactly why
-  late-mission medals crash on modern systems while early ones do not (Win98 compat merely shuffles
-  heap/timing enough to sometimes survive the bad handle). **`sl_patch.py --fix-medal`** changes that
-  one store back to `DAT_0051d7e8` (4-byte in-place operand fix, no cave; matches the early branch;
-  disassembly-verified; revertable). *(Pending byte-for-byte cross-check against the community Crash
-  Fix — its file is download-gated; see `analysis/crashfix/`.)*
+- **Medal-case crash — ROOT-CAUSED + fixed.** Trigger: the player's **bunk / ready-room, clicking the
+  medal case** (the ready-room menu `FUN_00439fb0` case 6 calls the medal-case display
+  `FUN_004362f0`). It plays a Bink "case lid" movie opening then closing, each with an early/late
+  campaign art variant (mission index `DAT_00562dc8 < 0x13` = Reliant `r`-prefixed art, ≥ 0x13 =
+  Yamato art). Every medal video must live in the **medal handle `DAT_0051d7e8`** — that is what the
+  `_BinkWait` (line 20509), the per-frame render callback `FUN_00436b20` (installed at
+  `*(DAT_00588730 + 0x88)`), and the `_BinkClose`s all use. **Four `_BinkOpen` sites store the result,
+  but only one (lid-up early, `0x00436669`) targets `DAT_0051d7e8`; the other three were copy-pasted
+  with a stale operand and store into `DAT_005d6c40`** (the unrelated in-flight comm-video handle):
+  `0x004365EC` (lid-up late), `0x0043698F` (lid-down early), `0x00436A0B` (lid-down late). The tell at
+  each bug site is the *next* instruction — `mov eax,[0x51d7e8]; cmp` — i.e. it opens one global but
+  validates the other. That asymmetry explains the symptom exactly: late-campaign medals **hard-crash
+  on open** (the bad lid-up handle is `_BinkWait`'d immediately), while early-campaign medals merely
+  glitch on close (a just-freed handle that Win98's heap happens to tolerate). **`sl_patch.py
+  --fix-medal`** restores all three stores to `DAT_0051d7e8` (3 × 4-byte in-place operand fixes, no
+  cave; matches the correct early lid-up open; disassembly-verified; revertable). *(Pending a
+  byte-for-byte cross-check against the community Crash Fix — its file is download-gated; see
+  `analysis/crashfix/`.)*
 - **General** — Win98/WinXP compatibility mode helps on some systems; disabling in-game *3D Sound
   Effects* avoids an EAX-path crash on others (not yet RE'd).
 - **"Could not CoInitialise"** at start — ensure DirectX 7 runtime + DirectPlay (§8) are present;

@@ -74,8 +74,10 @@ def build_synth_exe():
     # plant widescreen fingerprints (offset == VA - imagebase here)
     data[0xC3A60:0xC3A60 + len(SL.WS_ORIG_FOV)] = SL.WS_ORIG_FOV
     data[0xACD08:0xACD08 + len(SL.WS_ORIG_RES)] = SL.WS_ORIG_RES
-    # plant the medal-fix fingerprint (cave-less in-place patch) at VA 0x4365EC
-    data[0x365EC:0x365EC + len(SL.MEDAL_ORIG)] = SL.MEDAL_ORIG
+    # plant the medal-fix fingerprints (cave-less in-place patch) at all 3 sites
+    for va in SL.MEDAL_SITES:
+        off = va - SL.IMAGE_BASE          # off == rva in this synthetic layout
+        data[off:off + len(SL.MEDAL_ORIG)] = SL.MEDAL_ORIG
     # plant the multicore-fix fingerprint (OEP code-cave) at VA 0x4D1210
     data[0xD1210:0xD1210 + len(SL.MC_OEP_ORIG)] = SL.MC_OEP_ORIG
     # plant a fingerprint for the synthetic test fix
@@ -167,9 +169,12 @@ def run():
         dm = bytearray(f.read())
     pem = SL.parse_pe(dm)
     check(SL.FIX_MEDAL.verify_state(pem, dm) == "patched", "fix-medal verifies as patched")
-    check(bytes(dm[0x365EC:0x365EC + 5]) == SL.MEDAL_FIXED, "fix-medal wrote the in-place operand (no cave)")
+    fixed_all = all(bytes(dm[va - SL.IMAGE_BASE:va - SL.IMAGE_BASE + 5]) == SL.MEDAL_FIXED
+                    for va in SL.MEDAL_SITES)
+    check(fixed_all, "fix-medal wrote all 3 in-place operands (no cave)")
     manm = json.load(open(SL._manifest_path(out_m)))
     check(manm["patches"][0]["caves"] == [], "fix-medal manifest records zero caves (in-place)")
+    check(len(manm["patches"][0]["hooks"]) == 3, "fix-medal manifest records all 3 sites")
     revm = os.path.join(tmp, "medal_rev.exe")
     SL.revert(out_m, revm)
     with open(revm, "rb") as f:

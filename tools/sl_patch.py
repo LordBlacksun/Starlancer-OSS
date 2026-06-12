@@ -290,43 +290,56 @@ def fps_advisory(requested=None):
 
 
 # --------------------------------------------------------------------------------
-# FIX: medal-case crash (late-campaign Bink handle)  — RE'd 2026-06-12
+# FIX: medal-case crash (wrong Bink handle global)  — RE'd 2026-06-12
 # --------------------------------------------------------------------------------
-# The medal ceremony host FUN_004362f0 opens the "lid-up" Bink movie into a global,
-# then waits/renders/closes it. The EARLY-campaign branch (mission index
-# DAT_00562dc8 < 0x13) opens into the medal handle DAT_0051d7e8 and everything
-# downstream uses DAT_0051d7e8 (wait @0x436..., render callback FUN_00436b20,
-# close @0x436... line 20580). The LATE-campaign branch (>= 0x13) is a copy of the
-# same code whose store operand was never updated: it opens into DAT_005d6c40 (the
-# *in-flight comm-video* handle) at 0x004365EC, leaving DAT_0051d7e8 stale/closed —
-# so _BinkWait(DAT_0051d7e8) hits a dangling/NULL handle and crashes. That is why
-# late-mission medals crash on modern systems while early ones do not.
+# Trigger (user-confirmed): the player's bunk / ready-room, when you CLICK the medal
+# case. The ready-room menu dispatcher FUN_00439fb0 (case 6) calls the medal-case
+# display FUN_004362f0, which plays two Bink movies - the case lid opening ("lid-up")
+# and closing ("lid-down") - each in an early/late-campaign variant (mission index
+# DAT_00562dc8 < 0x13 loads the Reliant 'r'-prefixed art, >= 0x13 the Yamato art).
 #
-# Fix = a 4-byte in-place operand change at 0x004365EC making the late branch store
-# into DAT_0051d7e8, exactly like the early branch. No cave; same instruction length.
-MEDAL_VA    = 0x004365EC
+# Every medal video must live in the medal handle DAT_0051d7e8: that is what the
+# _BinkWait (line 20509), the per-frame render callback FUN_00436b20 (installed at
+# *(DAT_00588730 + 0x88), plays DAT_0051d7e8), and the _BinkCloses all use. Four
+# _BinkOpen sites store the result; only ONE (lid-up early, 0x00436669) correctly
+# targets DAT_0051d7e8. The other THREE were copy-pasted with a stale operand and
+# store into DAT_005d6c40 (the unrelated in-flight comm-video handle) instead. The
+# tell at each bug site is the very next instruction - `mov eax,[0x51d7e8]; cmp` (or
+# the `== 0` form) - i.e. the code OPENS one global but VALIDATES the other, proving
+# DAT_0051d7e8 was intended:
+#   0x004365EC  lid-up   late   (DAT_00562dc8 >= 0x13)  <- the hard crash: stale
+#                                                          handle is _BinkWait'd
+#                                                          immediately on open
+#   0x0043698F  lid-down early
+#   0x00436A0B  lid-down late
+# That asymmetry is why early-campaign medals merely glitch on close (Win98-tolerant
+# use of a just-freed handle) while late-campaign medals hard-crash on open.
+#
+# Fix = a 4-byte in-place operand change at each of the three sites: store into
+# DAT_0051d7e8 like the correct early lid-up open. No cave; same instruction length.
+MEDAL_SITES = [0x004365EC, 0x0043698F, 0x00436A0B]
 MEDAL_ORIG  = bytes.fromhex("a3406c5d00")   # mov dword [0x5d6c40], eax  (BUG: comm-video global)
-MEDAL_FIXED = bytes.fromhex("a3e8d75100")   # mov dword [0x51d7e8], eax  (medal handle; == early branch)
+MEDAL_FIXED = bytes.fromhex("a3e8d75100")   # mov dword [0x51d7e8], eax  (medal handle)
 
 
 def _medal_build(pe, params, alloc):
     return dict(caves=[],
-                hooks=[dict(off=va_to_off(pe, MEDAL_VA), va=MEDAL_VA, bytes=MEDAL_FIXED)])
+                hooks=[dict(off=va_to_off(pe, va), va=va, bytes=MEDAL_FIXED) for va in MEDAL_SITES])
 
 
 def _medal_state(pe, data):
-    b = bytes(data[va_to_off(pe, MEDAL_VA):va_to_off(pe, MEDAL_VA) + 5])
-    if b == MEDAL_FIXED:
+    seen = {bytes(data[va_to_off(pe, va):va_to_off(pe, va) + 5]) for va in MEDAL_SITES}
+    if seen == {MEDAL_FIXED}:
         return "patched"
-    if b == MEDAL_ORIG:
+    if seen == {MEDAL_ORIG}:
         return "stock"
-    return "unknown"
+    return "unknown"   # partial / different build
 
 
 FIX_MEDAL = PatchDefinition(
     id="fix-medal",
-    summary="fix the late-campaign medal-case crash (stale Bink handle @ 0x4365EC)",
-    sites=[dict(va=MEDAL_VA, orig=MEDAL_ORIG, hook_len=5)],
+    summary="fix the bunk medal-case crash (3 medal-video opens stored the wrong Bink handle)",
+    sites=[dict(va=va, orig=MEDAL_ORIG, hook_len=5) for va in MEDAL_SITES],
     build=_medal_build,
     verify_state=_medal_state,
 )
