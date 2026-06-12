@@ -36,6 +36,7 @@
 __pycache__/
 *.pyc
 *.pyo
+*.slpatch.json     # sl_patch sidecar manifests (only ever beside a patched local exe)
 
 # OS / editor
 Thumbs.db

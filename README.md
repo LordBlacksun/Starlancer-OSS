@@ -62,7 +62,8 @@ launch the game.
 **Modern-systems fixes** (patch a *local copy* of your own exe / `.HOG` — never the original, never run)
 | Path | Description |
 |------|-------------|
-| [`tools/ws_patch.py`](tools/ws_patch.py) | **Native Hor+ widescreen patcher** — forces a correct wide FOV + resolution via two static EXE code-caves (`--width/--height`, `--verify`, `--revert`, `--fov-table`). |
+| [`tools/sl_patch.py`](tools/sl_patch.py) | **Modern-systems patch pack** — one declarative code-cave engine that applies any subset of the static EXE fixes (`--widescreen WxH` native Hor+ today; FPS-cap and crash fixes landing) with a sidecar manifest and per-fix `--verify` / `--revert` / `--revert-only`. |
+| [`tools/ws_patch.py`](tools/ws_patch.py) | **Deprecated alias** for `sl_patch.py --widescreen` — keeps the old `--width/--height` CLI working (byte-identical output). |
 | [`tools/blank_boot_videos.py`](tools/blank_boot_videos.py) | Skip the boot Bink movies by blanking them in a `.HOG`. |
 
 **Reverse-engineering & analysis**
@@ -77,8 +78,9 @@ launch the game.
 | Path | Description |
 |------|-------------|
 | [`tools/check_no_game_data.py`](tools/check_no_game_data.py) | Game-data guard (run by the pre-commit hook and CI). |
-| [`tests/run_all.py`](tests/run_all.py) | Pre-PR / CI gate — hog self-tests + guard (no game files needed). |
+| [`tests/run_all.py`](tests/run_all.py) | Pre-PR / CI gate — hog + sl_patch self-tests + guard (no game files needed). |
 | [`tests/hog_selftest.py`](tests/hog_selftest.py) | Extractor self-test. |
+| [`tests/sl_patch_selftest.py`](tests/sl_patch_selftest.py) | Patch-engine self-test (synthetic PE; apply / verify / revert / manifest / ordering). |
 
 ## Quick start
 
@@ -88,8 +90,8 @@ python tools/hog_extract.py path/to/resource.hog -o out/    # extract everything
 python tools/slstats.py --help                              # ship/weapon stat editor
 python tools/dte_parse.py ref exec                          # print the Executor command table
 python tools/dte_parse.py decode mission1.dte               # decompress (RefPack) + decode a mission
-python tools/ws_patch.py --fov-table                        # preview the Hor+ widescreen FOV per aspect
-python tools/ws_patch.py --width 1920 --height 1080 in.exe out.exe   # patch a local exe copy
+python tools/sl_patch.py --fov-table                        # preview the Hor+ widescreen FOV per aspect
+python tools/sl_patch.py --widescreen 1920x1080 in.exe out.exe      # patch a local exe copy
 python tests/run_all.py                                     # run the full self-test gate
 ```
 
