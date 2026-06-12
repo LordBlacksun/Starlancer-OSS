@@ -256,11 +256,26 @@ DirectDraw/Direct3D, DirectInput and DirectPlay are also resolved dynamically vi
 
 ## 16. Pointers for the modernization work
 
-- **Widescreen / Hor+ (priority #1): DONE** — `tools/ws_patch.py` patches the projection writer
-  `FUN_004c3a60` (`0x004C3A60`, `sX := sY·height/width` ⇒ square-pixel Hor+) and forces the flight
-  resolution via a cave at device init `0x004ACBE0` (globals `DAT_005d6b2c`/`DAT_005d6c88`). The core
-  flight HUD (`hud.cpp` `0x00483150`, cockpit `0x004934F0`) already auto-centres from width/height;
-  **v2** = native-widescreen menus + repositioning the 320×240-grid flight widgets (`0x00494040`).
+All static EXE fixes now ship from one tool, **`tools/sl_patch.py`** (declarative code-cave engine
++ sidecar manifest + per-fix verify/revert; `ws_patch.py` is a deprecated alias). Fixes:
+
+- **Widescreen / Hor+ (priority #1): DONE** — patches the projection writer `FUN_004c3a60`
+  (`0x004C3A60`, `sX := sY·height/width` ⇒ square-pixel Hor+) and forces the flight resolution via a
+  cave at device init `0x004ACBE0` (globals `DAT_005d6b2c`/`DAT_005d6c88`). The core flight HUD
+  (`hud.cpp` `0x00483150`, cockpit `0x004934F0`) already auto-centres from width/height; **v2** =
+  native-widescreen menus + repositioning the 320×240-grid flight widgets (`0x00494040`).
+- **Frame cap (`--fps`): no EXE patch by design** — the 100 Hz is the *simulation* timebase (§2a),
+  not a render limiter; the cap is renderer vsync (`srddraw.dll`). See `modern-fixes.md` §4.
+- **Medal-case crash (`--fix-medal`): ROOT-CAUSED + fixed.** Host `FUN_004362f0` (`0x004362F0`):
+  late-campaign branch (mission index `DAT_00562dc8 ≥ 0x13`) opens the medal "lid" Bink at
+  `0x004365EC` into the wrong global `DAT_005d6c40` (the comm-video handle) instead of the medal
+  handle `DAT_0051d7e8` that the wait (line 20509), render callback `FUN_00436b20`, and close
+  (`0x004365EC`-adjacent) all use ⇒ dangling/NULL handle ⇒ crash. Fix = restore the store operand to
+  `DAT_0051d7e8` (matches the early branch). Per-frame medal render callback is `FUN_00436b20`
+  (installed at `*(DAT_00588730 + 0x88)`).
+- **Multi-core crash (`--fix-multicore`):** the WINMM timer thread races the main thread (§2a); the
+  fix is a self-affinity cave at the OEP (`0x004D1210`) calling `SetProcessAffinityMask(self, 1)`
+  (resolved via `GetModuleHandleA`/`GetProcAddress`). A *pin*, not a cure. See `modern-fixes.md` §5.
 - **Mission editor:** the `TT_*` trigger table `0x0045B330` + mission runtime `0x0048E140`.
 - **Stat/ship tooling:** already covered by `slstats.py` / `slswitch.py`; cross-check loaders at
   `0x0049CAE0` (pilotstats) and `0x00441AA0` (ship preload).

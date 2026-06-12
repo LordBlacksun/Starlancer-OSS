@@ -289,7 +289,132 @@ def fps_advisory(requested=None):
     return 0
 
 
-REGISTRY = {d.id: d for d in [WIDESCREEN]}
+# --------------------------------------------------------------------------------
+# FIX: medal-case crash (late-campaign Bink handle)  — RE'd 2026-06-12
+# --------------------------------------------------------------------------------
+# The medal ceremony host FUN_004362f0 opens the "lid-up" Bink movie into a global,
+# then waits/renders/closes it. The EARLY-campaign branch (mission index
+# DAT_00562dc8 < 0x13) opens into the medal handle DAT_0051d7e8 and everything
+# downstream uses DAT_0051d7e8 (wait @0x436..., render callback FUN_00436b20,
+# close @0x436... line 20580). The LATE-campaign branch (>= 0x13) is a copy of the
+# same code whose store operand was never updated: it opens into DAT_005d6c40 (the
+# *in-flight comm-video* handle) at 0x004365EC, leaving DAT_0051d7e8 stale/closed —
+# so _BinkWait(DAT_0051d7e8) hits a dangling/NULL handle and crashes. That is why
+# late-mission medals crash on modern systems while early ones do not.
+#
+# Fix = a 4-byte in-place operand change at 0x004365EC making the late branch store
+# into DAT_0051d7e8, exactly like the early branch. No cave; same instruction length.
+MEDAL_VA    = 0x004365EC
+MEDAL_ORIG  = bytes.fromhex("a3406c5d00")   # mov dword [0x5d6c40], eax  (BUG: comm-video global)
+MEDAL_FIXED = bytes.fromhex("a3e8d75100")   # mov dword [0x51d7e8], eax  (medal handle; == early branch)
+
+
+def _medal_build(pe, params, alloc):
+    return dict(caves=[],
+                hooks=[dict(off=va_to_off(pe, MEDAL_VA), va=MEDAL_VA, bytes=MEDAL_FIXED)])
+
+
+def _medal_state(pe, data):
+    b = bytes(data[va_to_off(pe, MEDAL_VA):va_to_off(pe, MEDAL_VA) + 5])
+    if b == MEDAL_FIXED:
+        return "patched"
+    if b == MEDAL_ORIG:
+        return "stock"
+    return "unknown"
+
+
+FIX_MEDAL = PatchDefinition(
+    id="fix-medal",
+    summary="fix the late-campaign medal-case crash (stale Bink handle @ 0x4365EC)",
+    sites=[dict(va=MEDAL_VA, orig=MEDAL_ORIG, hook_len=5)],
+    build=_medal_build,
+    verify_state=_medal_state,
+)
+
+
+# --------------------------------------------------------------------------------
+# FIX: multi-core crash (self-affinity)  — RE'd 2026-06-12
+# --------------------------------------------------------------------------------
+# Static RE found no RDTSC and no affinity APIs in the stock exe; the only extra
+# thread is the WINMM multimedia-timer thread, whose mode-0 callbacks (registered
+# via FUN_004a70f0) run concurrently with the main thread. The per-timer
+# InterlockedExchange guard only blocks re-entry of the *same* timer - it does not
+# serialise a timer callback against the main thread touching the same globals. On
+# a single core, time-slicing hides the race; on multiple cores it is a true data
+# race, which is why the community Crash Fix (Teleguy/Choum) *forces single-core
+# affinity*. Pinning the exact racy global is not statically provable here, so this
+# is the agreed fallback: have the exe pin ITSELF to one core at startup - cleaner
+# than imagecfg/launcher affinity, and it composes with --fix-medal (the separate,
+# root-caused medal crash). It is a "pin, not cure"; in-game verification is the
+# community's.
+#
+# A code-cave at the OEP (0x004D1210, before the CRT/WinMain and before any thread
+# is created) resolves SetProcessAffinityMask at runtime (it is not imported) via
+# the existing GetModuleHandleA/GetProcAddress imports and calls it with mask=1
+# (CPU 0) on the current process, then runs the displaced OEP bytes and returns.
+MC_OEP_VA   = 0x004D1210
+MC_OEP_CONT = 0x004D1215                     # OEP + 5 (after the displaced bytes)
+MC_OEP_ORIG = bytes.fromhex("558bec6aff")    # push ebp; mov ebp,esp; push -1
+MC_STR_KERNEL32       = 0x004DDF4E           # existing "KERNEL32.dll" import-name string
+MC_T_GetModuleHandleA = 0x004DC100           # IAT thunks (call dword ptr [..])
+MC_T_GetProcAddress   = 0x004DC050
+MC_T_GetCurrentProcess = 0x004DC0E8
+MC_CODE_LEN = 0x34                            # bytes of cave code before the embedded string
+
+
+def _mc_build_cave(cave_va):
+    str_va = cave_va + MC_CODE_LEN
+    b = bytearray()
+    b += b"\x60"                                                   # pushad
+    b += b"\x68" + struct.pack("<I", MC_STR_KERNEL32)             # push "KERNEL32.dll"
+    b += b"\xFF\x15" + struct.pack("<I", MC_T_GetModuleHandleA)   # call [GetModuleHandleA] -> eax
+    b += b"\x68" + struct.pack("<I", str_va)                      # push "SetProcessAffinityMask"
+    b += b"\x50"                                                   # push eax (hModule)
+    b += b"\xFF\x15" + struct.pack("<I", MC_T_GetProcAddress)    # call [GetProcAddress] -> eax
+    b += b"\x85\xC0"                                               # test eax, eax
+    b += b"\x74\x0D"                                               # jz done (skip the call block)
+    b += b"\x8B\xD8"                                               # mov ebx, eax (save fn ptr)
+    b += b"\xFF\x15" + struct.pack("<I", MC_T_GetCurrentProcess)  # call [GetCurrentProcess] -> eax
+    b += b"\x6A\x01"                                               # push 1 (mask = CPU 0)
+    b += b"\x50"                                                   # push eax (hProcess)
+    b += b"\xFF\xD3"                                               # call ebx (SetProcessAffinityMask)
+    # done:
+    b += b"\x61"                                                   # popad
+    b += MC_OEP_ORIG                                              # displaced OEP bytes
+    b += b"\xE9" + rel32(MC_OEP_CONT, cave_va + len(b) + 5)       # jmp OEP+5
+    assert len(b) == MC_CODE_LEN, f"mc cave code len {len(b):#x} != {MC_CODE_LEN:#x}"
+    b += b"SetProcessAffinityMask\x00"
+    return bytes(b)
+
+
+def _mc_build(pe, params, alloc):
+    off, va = alloc(len(_mc_build_cave(0)))
+    cave = _mc_build_cave(va)
+    hook = b"\xE9" + rel32(va, MC_OEP_VA + 5)                     # 5-byte jmp, exact
+    assert len(hook) == 5
+    return dict(caves=[dict(off=off, va=va, bytes=cave)],
+                hooks=[dict(off=va_to_off(pe, MC_OEP_VA), va=MC_OEP_VA, bytes=hook)])
+
+
+def _mc_state(pe, data):
+    b = bytes(data[va_to_off(pe, MC_OEP_VA):va_to_off(pe, MC_OEP_VA) + 5])
+    if b and b[0] == 0xE9:
+        return "patched"
+    if b == MC_OEP_ORIG:
+        return "stock"
+    return "unknown"
+
+
+FIX_MULTICORE = PatchDefinition(
+    id="fix-multicore",
+    summary="pin the process to one core at startup (avoids the multi-core timer race)",
+    sites=[dict(va=MC_OEP_VA, orig=MC_OEP_ORIG, hook_len=5)],
+    build=_mc_build,
+    verify_state=_mc_state,
+)
+
+
+REGISTRY = {d.id: d for d in [WIDESCREEN, FIX_MEDAL, FIX_MULTICORE]}
 
 
 # =================================================================== engine core

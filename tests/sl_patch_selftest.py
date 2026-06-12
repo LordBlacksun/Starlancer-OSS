@@ -61,7 +61,7 @@ def build_synth_exe():
     sect_tbl = opt + opt_size
     raw = 0x1000
     sec_va = 0x1000
-    vsize = 0xC4000           # mapped region covers both hook RVAs (0xACD08, 0xC3A60)
+    vsize = 0xD2000           # mapped region covers all hook RVAs (0xACD08, 0xC3A60, OEP 0xD1210)
     rawsize = size - raw      # slack runs to EOF (cave space)
     o = sect_tbl
     data[o:o + 8] = b".text\x00\x00\x00"
@@ -74,6 +74,10 @@ def build_synth_exe():
     # plant widescreen fingerprints (offset == VA - imagebase here)
     data[0xC3A60:0xC3A60 + len(SL.WS_ORIG_FOV)] = SL.WS_ORIG_FOV
     data[0xACD08:0xACD08 + len(SL.WS_ORIG_RES)] = SL.WS_ORIG_RES
+    # plant the medal-fix fingerprint (cave-less in-place patch) at VA 0x4365EC
+    data[0x365EC:0x365EC + len(SL.MEDAL_ORIG)] = SL.MEDAL_ORIG
+    # plant the multicore-fix fingerprint (OEP code-cave) at VA 0x4D1210
+    data[0xD1210:0xD1210 + len(SL.MC_OEP_ORIG)] = SL.MC_OEP_ORIG
     # plant a fingerprint for the synthetic test fix
     data[0xB0000:0xB0000 + len(_TESTFIX_ORIG)] = _TESTFIX_ORIG
     return data
@@ -156,6 +160,47 @@ def run():
     check(dr == bytes(orig), "revert round-trips byte-identical to stock")
     check(not os.path.exists(SL._manifest_path(rev1)), "manifest removed after full revert")
 
+    # 2b) cave-less in-place patch (fix-medal): apply + verify + byte-exact revert
+    out_m = os.path.join(tmp, "medal.exe")
+    SL.apply(src, out_m, [("fix-medal", {})])
+    with open(out_m, "rb") as f:
+        dm = bytearray(f.read())
+    pem = SL.parse_pe(dm)
+    check(SL.FIX_MEDAL.verify_state(pem, dm) == "patched", "fix-medal verifies as patched")
+    check(bytes(dm[0x365EC:0x365EC + 5]) == SL.MEDAL_FIXED, "fix-medal wrote the in-place operand (no cave)")
+    manm = json.load(open(SL._manifest_path(out_m)))
+    check(manm["patches"][0]["caves"] == [], "fix-medal manifest records zero caves (in-place)")
+    revm = os.path.join(tmp, "medal_rev.exe")
+    SL.revert(out_m, revm)
+    with open(revm, "rb") as f:
+        check(f.read() == bytes(orig), "fix-medal revert round-trips byte-identical")
+
+    # 2c) OEP code-cave (fix-multicore): apply + verify + structural checks + revert
+    out_mc = os.path.join(tmp, "mc.exe")
+    SL.apply(src, out_mc, [("fix-multicore", {})])
+    with open(out_mc, "rb") as f:
+        dmc = bytearray(f.read())
+    pemc = SL.parse_pe(dmc)
+    check(SL.FIX_MULTICORE.verify_state(pemc, dmc) == "patched", "fix-multicore verifies as patched")
+    check(dmc[0xD1210] == 0xE9, "fix-multicore wrote a JMP hook at the OEP")
+    manmc = json.load(open(SL._manifest_path(out_mc)))
+    cave_hex = manmc["patches"][0]["caves"][0]["bytes"]
+    cave = bytes.fromhex(cave_hex)
+    check(cave[0] == 0x60 and cave.endswith(b"SetProcessAffinityMask\x00"),
+          "fix-multicore cave: pushad ... embedded API name")
+    check(SL.MC_OEP_ORIG in cave, "fix-multicore cave preserves the displaced OEP bytes")
+    revmc = os.path.join(tmp, "mc_rev.exe")
+    SL.revert(out_mc, revmc)
+    with open(revmc, "rb") as f:
+        check(f.read() == bytes(orig), "fix-multicore revert round-trips byte-identical")
+
+    # 2d) --fix-crashes applies medal + multicore together
+    out_fc = os.path.join(tmp, "crashes.exe")
+    SL.apply(src, out_fc, [("fix-medal", {}), ("fix-multicore", {})])
+    man_fc = json.load(open(SL._manifest_path(out_fc)))
+    check([p["id"] for p in man_fc["patches"]] == ["fix-medal", "fix-multicore"],
+          "--fix-crashes: both crash fixes applied in canonical order")
+
     # 3) idempotency: re-applying widescreen onto the patched file is refused
     out_dup = os.path.join(tmp, "dup.exe")
     try:
@@ -180,11 +225,13 @@ def run():
     SL.REGISTRY["fps"] = TESTFIX
     try:
         out2 = os.path.join(tmp, "multi.exe")
-        # deliberately pass fps before widescreen; engine must canonicalize order
-        SL.apply(src, out2, [("fps", dict(fps=144)), ("widescreen", dict(width=2560, height=1440))])
+        # deliberately pass out of order; engine must canonicalize (widescreen, fps, fix-medal).
+        # Mixes cave-based (widescreen, fps) with cave-less (fix-medal) fixes.
+        SL.apply(src, out2, [("fix-medal", {}), ("fps", dict(fps=144)),
+                             ("widescreen", dict(width=2560, height=1440))])
         man2 = json.load(open(SL._manifest_path(out2)))
         ids = [p["id"] for p in man2["patches"]]
-        check(ids == ["widescreen", "fps"], f"caves laid out in canonical order (got {ids})")
+        check(ids == ["widescreen", "fps", "fix-medal"], f"3 fixes in canonical order (got {ids})")
         ws_cave = man2["patches"][0]["caves"][0]["off"]
         fps_cave = man2["patches"][1]["caves"][0]["off"]
         check(fps_cave > ws_cave, "second fix's cave is allocated after the first's")
@@ -193,6 +240,7 @@ def run():
         pe2 = SL.parse_pe(d2)
         check(SL.WIDESCREEN.verify_state(pe2, d2) == "patched", "multi: widescreen patched")
         check(TESTFIX.verify_state(pe2, d2) == "patched", "multi: synthetic fix patched")
+        check(SL.FIX_MEDAL.verify_state(pe2, d2) == "patched", "multi: fix-medal patched (cave-less + caves coexist)")
 
         # revert only the synthetic fix; widescreen must remain
         out3 = os.path.join(tmp, "multi_revfps.exe")
@@ -202,8 +250,10 @@ def run():
         pe3 = SL.parse_pe(d3)
         check(TESTFIX.verify_state(pe3, d3) == "stock", "revert-only fps: synthetic fix reverted")
         check(SL.WIDESCREEN.verify_state(pe3, d3) == "patched", "revert-only fps: widescreen intact")
+        check(SL.FIX_MEDAL.verify_state(pe3, d3) == "patched", "revert-only fps: fix-medal intact")
         man3 = json.load(open(SL._manifest_path(out3)))
-        check([p["id"] for p in man3["patches"]] == ["widescreen"], "manifest now lists widescreen only")
+        check([p["id"] for p in man3["patches"]] == ["widescreen", "fix-medal"],
+              "manifest now lists the two surviving fixes")
     finally:
         del SL.REGISTRY["fps"]
 

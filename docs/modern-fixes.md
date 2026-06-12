@@ -154,26 +154,50 @@ recipe (it intentionally applies no patch). **Layer:** WRAP. **Source:** our sta
 
 ---
 
-## 5. Multi-core / CPU-affinity crashes  · CONFIG / EXE
+## 5. Multi-core / CPU-affinity crashes  · EXE (`sl_patch --fix-multicore`) · *2026-06-12*
 
-Starlancer can crash on multi-core CPUs. Remedies:
+**Root cause (static RE):** the stock exe has **no RDTSC and no affinity calls**; the only extra
+thread is the **WINMM multimedia-timer thread** (see `engine-map.md` → *Timer subsystem*), whose
+**mode-0 timer callbacks run concurrently with the main thread**. The per-timer `InterlockedExchange`
+guard only blocks re-entry of the *same* timer — it does **not** serialise a callback against the
+main thread touching the same globals. On one core, time-slicing hides it; on many cores it is a
+genuine data race. That is exactly why the community Crash Fix *forces single-core affinity*.
 
-- **Starlancer Crash Fix v1.0.1** (Teleguy / Choum) — patched `lancer.exe`; fixes the medal-case
-  crash *and* forces single-core affinity. <https://community.pcgamingwiki.com/files/file/1952-starlancer-crash-fix/>
-  (If pairing with dgVoodoo2 on NVIDIA, prefer the v1.0.2 follow-up to avoid a 2D→3D hang.)
-- **Manual affinity** — launch pinned to one core (e.g. `imagecfg -a 0x1 lancer.exe` /
-  `lancer.icd`, or set affinity via Task Manager / a launcher).
+Pinning the precise racy global is not statically provable (and unverifiable without launching), so
+our fix is the **agreed fallback: have the exe pin itself to one core at startup** — cleaner than an
+external launcher, and it composes with the separately root-caused medal fix (§6).
 
-**Layer:** EXE (patch) or CONFIG (affinity). **Source:** community; cross-ref the crash notes in
-`modding-scene.md`.
+- **`sl_patch.py --fix-multicore`** — a code-cave at the OEP (`0x004D1210`, before the CRT/WinMain
+  and before any thread spawns) resolves `SetProcessAffinityMask` at runtime (it is not imported)
+  via the existing `GetModuleHandleA`/`GetProcAddress` and calls it with mask `1` (CPU 0) on the
+  current process, then runs the displaced OEP bytes. 75-byte cave; statically disassembly-verified;
+  revertable. **Honest framing: this is a *pin*, not a cure** — it sidesteps the race rather than
+  removing it.
+- **Community alternative — Starlancer Crash Fix v1.0.1** (Teleguy / Choum): patched `lancer.exe`
+  that fixes the medal crash *and* forces single core. <https://community.pcgamingwiki.com/files/file/1952-starlancer-crash-fix/>
+  (With dgVoodoo2 on NVIDIA, prefer their v1.0.2 to avoid a 2D→3D hang.)
+- **Manual affinity** — Task Manager / `imagecfg -a 0x1 lancer.exe` / a launcher.
+
+**Layer:** EXE. **Source:** our static RE + community. **In-game verification** (does pinning stop
+the crashes) is the community's.
 
 ---
 
-## 6. Crashes — medal case & general stability  · CONFIG / EXE
+## 6. Crashes — medal case & general stability  · EXE (`sl_patch --fix-medal`) · *2026-06-12*
 
-- **Medal-case close crash** — Win98 compatibility mode on `lancer.exe`, or the Crash Fix (§5).
+- **Medal-case crash — ROOT-CAUSED + fixed.** The medal-ceremony host `FUN_004362f0` plays a Bink
+  "lid" movie. The early-campaign branch (mission index `DAT_00562dc8 < 0x13`) opens it into the
+  medal handle `DAT_0051d7e8` and waits/renders/closes that handle. The **late-campaign branch
+  (≥ 0x13) is a copy whose store operand was never updated**: at `0x004365EC` it opens into
+  `DAT_005d6c40` (the *in-flight comm-video* global) instead, leaving `DAT_0051d7e8` stale/closed —
+  so `_BinkWait(DAT_0051d7e8)` runs on a dangling/NULL handle and crashes. This is exactly why
+  late-mission medals crash on modern systems while early ones do not (Win98 compat merely shuffles
+  heap/timing enough to sometimes survive the bad handle). **`sl_patch.py --fix-medal`** changes that
+  one store back to `DAT_0051d7e8` (4-byte in-place operand fix, no cave; matches the early branch;
+  disassembly-verified; revertable). *(Pending byte-for-byte cross-check against the community Crash
+  Fix — its file is download-gated; see `analysis/crashfix/`.)*
 - **General** — Win98/WinXP compatibility mode helps on some systems; disabling in-game *3D Sound
-  Effects* avoids an EAX-path crash on others.
+  Effects* avoids an EAX-path crash on others (not yet RE'd).
 - **"Could not CoInitialise"** at start — ensure DirectX 7 runtime + DirectPlay (§8) are present;
   try compatibility mode. (OEP diagnostics noted in `engine-map.md`.)
 
