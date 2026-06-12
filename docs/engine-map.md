@@ -137,14 +137,17 @@ Imports 11 `binkw32` entries (`BinkOpen`, `BinkDoFrame`, `BinkWait`, `BinkNextFr
 | `0x0043BA40` | In-world TV / news screens | `news report resource …`, `b_tv_news.bik` |
 | `0x0048D030` | HUD movie (cockpit video) | `hudmovie init: load failed …` |
 
-**Startup branding logos** — a consecutive string-table group at `0x50A2E8`, opened from the CD
-HOG (flag `0x800000`, *not* loose files) at process start: `warty_.bik` (**Warthog**),
-`new_dalogo_fs_uncmpr.bik` (**Digital Anvil**), `new_nms.bik` (**Microsoft Game Studios**), then the
-`splash to mm.bik` transition; the campaign intro is `new_intro.bik`. **A missing or zero-frame
-movie is tolerated** — `BinkOpen` returns NULL (logged, *not* fatal) or the end-of-video flag is set
-on frame 0, so the play loop exits immediately; any keypress aborts too. This is why the "blank.bik"
-skip works; `tools/blank_boot_videos.py` blanks the **three logos by default** (splash + intro
-opt-in) via extract → version-matched blank → repack. See [`modern-fixes.md`](modern-fixes.md).
+**Startup branding logos** — a consecutive string-table group at `0x50A2E8`, played at process
+start: `warty_.bik` (**Warthog**), `new_dalogo_fs_uncmpr.bik` (**Digital Anvil**), `new_nms.bik`
+(**Microsoft Game Studios**), then the `splash to mm.bik` transition; the campaign intro is
+`new_intro.bik`. In a **retail install** the three logos are **loose `.bik` in the game folder**
+(from `LANCER.CAB`) — verified **not** in `resource.hog` / `CD1.HOG` / `CD2.HOG` (only `new_intro.bik`
+is HOG-resident, in `CD2.HOG`); the `0x800000` Bink resource flag in the open call notwithstanding,
+the clips resolve to the loose files. **A missing or zero-frame movie is tolerated** — `BinkOpen`
+returns NULL (logged, *not* fatal) or the end-of-video flag is set on frame 0, so the play loop exits
+immediately; any keypress aborts too. This is why the blank-Bink skip works — replace the loose logo
+files with a blank (esc0rtd3w's `blank.bik`); `tools/blank_boot_videos.py` is the fallback for HOG-
+resident logos. (Logo verification 2026-06-12.) See [`modern-fixes.md`](modern-fixes.md) §1.
 
 ## 7. Input — DirectInput + force feedback
 
