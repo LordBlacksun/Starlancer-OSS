@@ -142,7 +142,11 @@ high-resolution crash. Drop one wrapper into the game root:
 
 The engine uses Miles (`mss32.dll`). For 3D sound / EAX on modern systems:
 
-- **DSOAL** (DirectSound→OpenAL): drop its `dsound.dll` in the game root. Simplest.
+- **Replacement `mss32.dll`** (the community "Starlancer sound fix"): drop a newer Miles 6.0a build
+  over the original `mss32.dll` in the game root. The 2000-era Miles is what misbehaves on modern
+  Windows; a newer build fixes it. (Verify any replacement is 32-bit and still exports the `_AIL_*`
+  functions the game imports — `python tools/pe_inspect.py mss32.dll`.)
+- **DSOAL** (DirectSound→OpenAL): drop its `dsound.dll` in the game root. Good for EAX surround.
 - Or just **disable in-game *3D Sound Effects*** — also avoids a known EAX-path crash.
 
 ---

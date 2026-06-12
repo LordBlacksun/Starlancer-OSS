@@ -246,6 +246,9 @@ Win10/11 — won't launch). Owner-legal remedies:
 
 The engine uses **Miles** (`mss32.dll`). For DirectSound3D/EAX surround on modern systems:
 
+- **Replacement `mss32.dll`** — a newer **Miles 6.0a** build (the community "Starlancer sound fix")
+  dropped in over the original. The 2000-era Miles is the part that misbehaves; a newer build fixes
+  audio/EAX. (Verify it's 32-bit and still exports the `_AIL_*` the game imports.)
 - **DSOAL** (DirectSound→OpenAL) — drop its `dsound.dll` in the game folder. Simplest.
 - **Creative ALchemy** — rename its `dsound.dll` to `esound.dll` and hex-edit `mss32.dll` to
   reference `esound.dll`; select EAX in-game. (See the *Starlancer DSound Fix* community file.)
