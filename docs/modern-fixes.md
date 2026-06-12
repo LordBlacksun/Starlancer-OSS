@@ -29,29 +29,38 @@ play at every launch and can hang or fail on modern setups.
 **What the engine does (verified).** The startup clips are a consecutive group in the string table:
 `warty_.bik` (**Warthog**), `new_dalogo_fs_uncmpr.bik` (**Digital Anvil**), `new_nms.bik`
 (**Microsoft Game Studios**), then the splash→main-menu transition `splash to mm.bik`; the campaign
-intro is `new_intro.bik`. They open **from the CD HOG** (`BinkOpen(resource, 0x800000)` — *not* loose
-files). The shared play loop (`0x004AC510`) tolerates a **missing or zero-frame** movie — `BinkOpen`
-returns NULL (logged, non-fatal) or the end flag trips on frame 0 — so the engine simply moves on;
-every frame also polls input, so **any keypress already aborts** a playing clip. *(The logo↔name
-mapping is by static inference — `warty_`=Warthog, `new_dalogo`="da logo"=Digital Anvil, `new_nms`=
-the only remaining startup logo=Microsoft Game Studios; no other `.bik` is microsoft-named.
-`FUN_004ABDE0` is the related per-**chapter** intro/landing sequencer, not the logo player.)*
+intro is `new_intro.bik`. In a **retail install** these three logos are **loose `.bik` files in the
+game folder** (installed from `LANCER.CAB`) — verified **not** present in `resource.hog`, `CD1.HOG`,
+or `CD2.HOG` — so the game plays them from the folder. *(Our decompile noted a `0x800000` Bink
+resource flag, but with the logos absent from every HOG the clips resolve to the loose files; only
+`new_intro.bik` actually lives in a HOG — `CD2.HOG`.)* The shared play loop (`0x004AC510`) tolerates a
+**missing or zero-frame** movie — `BinkOpen` returns NULL (logged, non-fatal) or the end flag trips on
+frame 0 — so the engine simply moves on; every frame also polls input, so **any keypress already
+aborts** a playing clip. *(Logo↔name mapping by static inference — `warty_`=Warthog, `new_dalogo`="da
+logo"=Digital Anvil, `new_nms`=the only remaining startup logo=Microsoft Game Studios. `FUN_004ABDE0`
+is the related per-**chapter** intro/landing sequencer, not the logo player.)*
 
-**Method.** Because the movies live in the HOG, blank them *in the archive* (a loose drop-in won't
-override the resource path). The tool blanks **only the three startup logos by default** — the
-splash and intro are left intact unless you ask for them — using a version-matched zero-frame Bink,
-and verifies the archive round-trips byte-for-byte except the swapped clips:
+**Method (loose files — the PCGamingWiki way, verified).** Replace the three loose logo `.bik` in the
+game folder with a blank Bink, keeping backups:
+
+1. Get a known-good blank: **esc0rtd3w's `blank.bik`** (the PCGW-recommended blank,
+   <https://github.com/esc0rtd3w/blank-intro-videos>).
+2. Back up the originals (e.g. rename to `*.bik.orig`), then put a copy of `blank.bik` in place of each
+   of `new_dalogo_fs_uncmpr.bik`, `new_nms.bik`, `warty_.bik`. Leave `splash to mm.bik` /
+   `new_intro.bik` if you want the splash/intro. To restore a logo, swap its `.orig` back.
+
+**Alternative (HOG builds).** If your build instead keeps the logos *inside* a HOG, blank them in the
+archive with our tool (version-matched zero-frame Bink; verifies a byte-exact round-trip except the
+swapped clips):
 
 ```sh
-python tools/blank_boot_videos.py list  CD1.HOG                       # show the startup clips + roles
-python tools/blank_boot_videos.py blank CD1.HOG -o CD1_nologo.hog     # blank the 3 logos only (default)
-python tools/blank_boot_videos.py blank CD1.HOG -o CD1_nologo.hog --include-splash --include-intro
+python tools/blank_boot_videos.py list  <your.hog>                     # show the startup clips + roles
+python tools/blank_boot_videos.py blank <your.hog> -o out_nologo.hog   # blank the 3 logos only (default)
+python tools/blank_boot_videos.py blank <your.hog> -o out_nologo.hog --include-splash --include-intro
 ```
 
-Place the new HOG in your install (keep the original). If a clip misbehaves with the generated
-stub, pass a known-good minimal black Bink instead: `--blank path/to/blank.bik` (e.g.
-esc0rtd3w's *blank-intro-videos*). **Layer:** DATA. **Source:** method = esc0rtd3w + our Bink RE;
-filenames + tolerance = our decompilation (`engine-map.md` §6).
+**Layer:** DATA. **Source:** loose-file method = PCGamingWiki / esc0rtd3w; HOG fallback + the
+tolerance/filename RE = our decompilation (`engine-map.md` §6). Logo location verified 2026-06-12.
 
 ---
 
