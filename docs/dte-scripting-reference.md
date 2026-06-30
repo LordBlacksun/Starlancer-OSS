@@ -8,8 +8,8 @@ script-stream opcodes. This **fuses two independent reverse-engineering efforts*
   the per-command **implementation addresses + parameter counts**, the trigger enum, the
   bytecode VM, and struct layouts.
 * **Black-box RE by Captain Foster / "Starlancer ME"** — blog
-  <https://starlancerme.blogspot.com/>, YouTube [@CaptainFoster](https://www.youtube.com/@CaptainFoster),
-  contact `email withheld`. Source of the **numeric opcode/command indices**, the
+  <https://starlancerme.blogspot.com/>, YouTube [@CaptainFoster](https://www.youtube.com/@CaptainFoster).
+  Source of the **numeric opcode/command indices**, the
   **AI-code** and **ship/pilot ID** tables, and the **observed in-game semantics**. Their
   empirical numbering and our disassembly agree everywhere they overlap — see
   [`dte-format.md`](dte-format.md) for the side-by-side reconciliation.
@@ -337,7 +337,7 @@ not listed take no parameters). Spelling, casing and copy-paste leftovers are pr
 
 The numeric opcode/command/AI/ship/pilot tables and the observed runtime semantics are the
 work of **Captain Foster / "Starlancer ME"** (<https://starlancerme.blogspot.com/>,
-[@CaptainFoster](https://www.youtube.com/@CaptainFoster), `email withheld`), who also
+[@CaptainFoster](https://www.youtube.com/@CaptainFoster)), who also
 maintains a Python "Mission Ship Editor". This document pairs that black-box research with our
 static disassembly (implementation addresses, parameter counts, the VM, struct layouts). Where
 the two overlap they agree; where they differ it is noted above and in

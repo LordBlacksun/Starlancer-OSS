@@ -8,7 +8,7 @@ independent reverse-engineering efforts:
   names `FUN_<addr>`. Source of struct layouts, the VM, the trigger enum, and per-command
   implementation addresses.
 * **Black-box RE by Captain Foster / "Starlancer ME"** — <https://starlancerme.blogspot.com/>,
-  YouTube [@CaptainFoster](https://www.youtube.com/@CaptainFoster), `email withheld`.
+  YouTube [@CaptainFoster](https://www.youtube.com/@CaptainFoster).
   Source of numeric opcode/command/AI/ship/pilot IDs and observed in-game semantics, plus a
   Python "Mission Ship Editor". **Their work is the semantic backbone; ours confirms and
   addresses it.** See §Reconciliation.

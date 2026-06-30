@@ -86,7 +86,7 @@ detail settings live here (the entry points for a widescreen/Hor+ patch).
 | `0x004A8880` | **Display-mode selection** | `dmodes.bin`, `renderdevice%d`, `Device` |
 | `0x004A8600` | Graphics detail / gamma config | `Device`, `Tdetail`, `Gdetail`, `Lmaps`, `Transitions`, `gamma` |
 | `0x004C3830` | Surrender init | `SR init: Attempting to call SR i…` |
-| `0x004C3A60` | **Projection scale/centre writer** (sets `+0x166E`/`+0x1686` scale, `+0x167A`/`+0x1692` centre + 5 clip planes from width/height & the `sX=0.6`,`sY=0.8` 4:3 params) | called directly at the end of device init/reset (`0x004ACBE0`/`0x004AD0A0`/`0x004AD2E0`); **the Hor+ FOV patch point** (see `modern-fixes.md` §3 / `tools/ws_patch.py`) |
+| `0x004C3A60` | **Projection scale/centre writer** (sets `+0x166E`/`+0x1686` scale, `+0x167A`/`+0x1692` centre + 5 clip planes from width/height & the `sX=0.6`,`sY=0.8` 4:3 params) | called directly at the end of device init/reset (`0x004ACBE0`/`0x004AD0A0`/`0x004AD2E0`); **the Hor+ FOV patch point** (see `modern-fixes.md` §3 / `tools/sl_patch.py`) |
 | `0x004C9A40` | Texture cache | `Texture Cache already initialise…` |
 | `0x004CB9D0` / `0x004CBBD0` | Colour-cube (CCB) load / save | `SR CCB load/save …` |
 | `0x004C98C0` | Texture attributes | `TEXTURE`, `USEPALETTE`, `ALPHACHANNEL`, `ERRDIFF` |
@@ -99,7 +99,7 @@ written by **`FUN_004c3a60`** (`0x004C3A60`) from those dims and the baked `sX=0
 params — *not* by the `DAT_00588730+0x40` callback, which is `SR_driver_init` inside the external
 `srddraw.dll` and only consumes the projection. **Native Hor+ widescreen is implemented** by a static
 code-cave at `FUN_004c3a60` (`sX := sY·h/w` ⇒ square pixels) plus a resolution-force cave at
-`0x004ACBE0` — see `modern-fixes.md` §3 and `tools/ws_patch.py`.
+`0x004ACBE0` — see `modern-fixes.md` §3 and `tools/sl_patch.py`.
 
 ## 4. WinVFX — 2D shapes / overlay
 

@@ -1,10 +1,10 @@
 # Starlancer (2000) — Modding & Modern-Windows Fix Scene
-*Researched 2026-06-08. Every claim has a source; items I couldn't confirm are marked UNCONFIRMED.*
+*Researched 2026-06-08 (tooling / fix status updated through 2026-06-30). Every claim has a source; items I couldn't confirm are marked UNCONFIRMED.*
 
 > ⚠️ Search note: "Starlancer" is polluted by unrelated projects (a crypto job-marketplace repo, a Lethal Company mod, and the *Freelancer* sequel's tooling). Everything below is the 2000 Digital Anvil space-combat sim only.
 
 ## TL;DR — minimum viable modern-Windows boot
-Clean/NoCD exe (or test **SafeDiscShim**) + **dgVoodoo2** (DLLs from its `MS\x86`) + **Starlancer Crash Fix v1.0.1** + enable **DirectPlay**. Documented/tested on Win7 & Win10.
+Clean/NoCD exe (or test **SafeDiscShim**) + **dgVoodoo2** (DLLs from its `MS\x86`) + our **`sl_patch.py --fix-medal --fix-multicore`** EXE fixes (or the community **Starlancer Crash Fix v1.0.1**) + enable **DirectPlay**. Or just run **[Starlancer Studio](https://github.com/LordBlacksun/Starlancer-OSS/releases/tag/studio-v1.1)**, which applies all of this for you. Documented/tested on Win7 & Win10.
 → **Step-by-step per-fix recipes** (each tagged by layer + backed by our RE where we have it): **[`modern-fixes.md`](modern-fixes.md)**.
 
 ## 1. Modern Windows (10/11) — does NOT run out of the box; fixable
@@ -22,9 +22,9 @@ Clean/NoCD exe (or test **SafeDiscShim**) + **dgVoodoo2** (DLLs from its `MS\x86
 **Bug-fix patches (PCGamingWiki community files)**
 - **Starlancer Crash Fix v1.0.1** — fixes medal-case crash + forces single-core affinity (orig by Teleguy, hosted by Choum). https://community.pcgamingwiki.com/files/file/1952-starlancer-crash-fix/
 - **Starlancer DSound Fix** — DirectSound3D/EAX via Creative ALchemy / DSOAL. https://community.pcgamingwiki.com/files/file/1440-starlancer-dsound-fix/
-- **Blank intro videos** (esc0rtd3w) — skip problematic FMV. https://github.com/esc0rtd3w/blank-intro-videos/ — **now RE-backed + tooled:** the three startup logos `warty_.bik` (Warthog) / `new_dalogo_fs_uncmpr.bik` (Digital Anvil) / `new_nms.bik` (Microsoft Game Studios) open **from the CD HOG** and the engine tolerates zero-frame movies, so `tools/blank_boot_videos.py` blanks just those three by default (the `splash to mm.bik` transition + `new_intro.bik` are opt-in) in-archive (extract→version-matched blank→repack). See **[`modern-fixes.md`](modern-fixes.md) §1**.
+- **Blank intro videos** (esc0rtd3w) — skip problematic FMV. https://github.com/esc0rtd3w/blank-intro-videos/ — **now RE-backed + tooled:** the three startup logos `warty_.bik` (Warthog) / `new_dalogo_fs_uncmpr.bik` (Digital Anvil) / `new_nms.bik` (Microsoft Game Studios) are **loose `.bik` files in the game folder** (not inside a HOG), and the engine tolerates a zero-frame movie, so `tools/blank_boot_videos.py` (and the Studio **Boot Videos** tab) replace just those three in place with a real black `blank.bik`, keeping `.orig` backups (the `splash to mm.bik` transition + the HOG-resident `new_intro.bik` are opt-in). See **[`modern-fixes.md`](modern-fixes.md) §1**.
 
-**Widescreen** — **NO proper Hor+ fix exists.** INI `Xres/Yres` only *stretches* 4:3; HUD/menus don't adapt. → **OPEN OPPORTUNITY.** https://www.wsgf.org/dr/starlancer/en
+**Widescreen** — **native Hor+ is now DONE** via `tools/sl_patch.py --widescreen` (a static EXE code-cave; the in-flight 3D view gets a correct wide FOV at any resolution). Menus stay 4:3-pillarboxed for now (native widescreen menus + HUD-widget reposition are v2). See **[`modern-fixes.md`](modern-fixes.md) §3**. https://www.wsgf.org/dr/starlancer/en
 
 **DRM compatibility** — **SafeDiscShim (RibShark)**, a userland `secdrv` shim that restores the service Windows removed, without altering any game file: https://github.com/RibShark/SafeDiscShim
 
@@ -33,7 +33,7 @@ Clean/NoCD exe (or test **SafeDiscShim**) + **dgVoodoo2** (DLLs from its `MS\x86
 ## 3. Copy protection
 **SafeDisc v1** (Macrovision); identifiable by an `.icd` companion to the main exe. Broken by `secdrv.sys` removal. The supported remedy here is **SafeDiscShim**.
 
-**Re-releases:** some copies are **Ubisoft-branded re-releases**, which may differ from the MS 2000 SafeDisc-v1 original in **version and/or DRM** — confirm from your own installed files rather than assuming SafeDisc v1. Inno Setup installers can be unpacked read-only with **`innoextract`** (no need to run the installer).
+**Re-releases:** some copies are **Ubisoft-branded re-releases**, which may differ from the MS 2000 SafeDisc-v1 original in **version and/or DRM** — confirm from your own installed files rather than assuming SafeDisc v1. Inno Setup repacks can be unpacked read-only with **`innoextract`** (no need to run the installer).
 
 ## 4. Source / reimplementation
 - **No Starlancer source or reimplementation exists.**
@@ -59,13 +59,15 @@ Clean/NoCD exe (or test **SafeDiscShim**) + **dgVoodoo2** (DLLs from its `MS\x86
 
 ## 6. Community hubs
 - **PCGamingWiki** (primary): https://www.pcgamingwiki.com/wiki/StarLancer
-- **Starlancer ME blog** — active (2024→2026) RE of the mission **`.DTE`** format (triggers, opcodes 27/40/3F, ship placement) + a Python Mission Ship Editor: https://starlancerme.blogspot.com/ (contact email withheld)
+- **Starlancer ME blog** — active (2024→2026) RE of the mission **`.DTE`** format (triggers, opcodes 27/40/3F, ship placement) + a Python Mission Ship Editor: https://starlancerme.blogspot.com/
 - **Wing Commander CIC** (most alive enthusiast hub): https://www.wcnews.com/chatzone/threads/starlancer.23440/
 - Fandom install guide: https://starlancer.fandom.com/wiki/How_to_run_Starlancer_on_Windows_7_and_10
 - Steam fix guide: https://steamcommunity.com/sharedfiles/filedetails/?id=3308060132
 - WSGF (widescreen): https://www.wsgf.org/dr/starlancer/en · VOGONS: https://www.vogons.org/viewtopic.php?t=47609 · SWAT Portal: https://swat-portal.com/forum/thread/76380-about-starlancer/ · Lutris: https://lutris.net/games/starlancer/
 
 ## Open opportunities for original patches
-1. **Widescreen / Hor+ patch** — nobody has done it; current state is INI-stretched 4:3. Highest-value original contribution.
-2. **Consolidated open-source modern-Windows fix pack** (DRM shim + dgVoodoo2 preset + crash fix + audio fix) as one bundle.
-3. **Format documentation / tooling** — leveraging the user's repo + Librelancer's UTF ecosystem as reference.
+1. **100-FPS uncap** — a wrapper-layer fix (the cap is renderer vsync, not an EXE limiter; see [`modern-fixes.md`](modern-fixes.md) §4). The highest-value remaining item.
+2. **`.SHP` ship-model format** — only partially decoded; a full spec would unlock custom-ship mods.
+3. **Native widescreen menus + flight-HUD reposition** — the flight view is already Hor+ (done); the 2D front-end staying 4:3 is the v2 frontier.
+
+*(Already done since this was first written: native Hor+ widescreen, the medal-case + multi-core crash fixes, the `.HOG` packer, the `.DTE` decoder, and a consolidated fix pack — **[Starlancer Studio](https://github.com/LordBlacksun/Starlancer-OSS/releases/tag/studio-v1.1)** — which bundles the EXE fixes, controller shim, boot-skip, and a Ready-to-Play wizard.)*

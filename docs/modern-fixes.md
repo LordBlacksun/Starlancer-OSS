@@ -88,16 +88,18 @@ changes the in-flight render size but, unpatched, distorts the image (non-square
 HUD/menus don't adapt; values above ~`1280×1024` also tend to crash. Our patch makes the same
 resolution render with a correct **Hor+** field of view instead.
 
-### How to apply (`tools/ws_patch.py`)
+### How to apply (`tools/sl_patch.py`)
 Patch a **local copy of your own** decrypted/No-CD exe (the tool never launches it; in-game testing
 is yours):
 
 ```sh
-python tools/ws_patch.py --fov-table                                  # preview the FOV per aspect
-python tools/ws_patch.py --width 1920 --height 1080 Lancer.exe Lancer_ws.exe
-python tools/ws_patch.py --verify Lancer_ws.exe                       # confirm the patch state
-python tools/ws_patch.py --revert Lancer_ws.exe Lancer_stock.exe      # restore stock bytes
+python tools/sl_patch.py --fov-table                                       # preview the FOV per aspect
+python tools/sl_patch.py --widescreen 1920x1080 Lancer.exe Lancer_ws.exe   # apply Hor+ widescreen
+python tools/sl_patch.py --verify Lancer_ws.exe                            # confirm the patch state
+python tools/sl_patch.py --revert Lancer_ws.exe Lancer_stock.exe           # restore stock bytes
 ```
+
+(Legacy alias: `tools/ws_patch.py --width 1920 --height 1080 …` — same output; the old CLI still works.)
 
 Run `Lancer_ws.exe` (pair with **dgVoodoo2/DDrawCompat** on modern GPUs — see §2). The in-flight
 3D view is Hor+ at your resolution; **menus/briefing stay 640×480 and pillarbox** (centred, not
@@ -127,7 +129,7 @@ static view) — pair with a wrapper and verify in-game. Native-widescreen **men
 the few 320×240-grid **flight HUD widgets** are deferred to **v2** (the core flight HUD — radar,
 reticle, screen centre — already auto-derives from width/height, so it adapts).
 
-**Layer:** EXE. **Source:** our RE (`engine-map.md` §3/§16); tool `tools/ws_patch.py`.
+**Layer:** EXE. **Source:** our RE (`engine-map.md` §3/§16); tool `tools/sl_patch.py` (legacy alias `tools/ws_patch.py`).
 
 ---
 
@@ -304,11 +306,12 @@ reads the stick via `Poll` + `GetDeviceState(DIJOYSTATE)`; **keyboard and mouse 
 
 ## Open opportunities (original work)
 
-1. ~~**Hor+ widescreen**~~ — **DONE** (§3): `tools/ws_patch.py` (static EXE code-cave). v2 = native
+1. ~~**Hor+ widescreen**~~ — **DONE** (§3): `tools/sl_patch.py` (static EXE code-cave). v2 = native
    widescreen menus + flight-HUD-widget reposition.
-2. **100-FPS uncap** — no fix exists (§4). Now the highest-value open item.
-3. **One consolidated modern-Windows fix pack** — DRM shim + dgVoodoo2 preset + crash fix + audio
-   fix + boot-skip, bundled.
+2. **100-FPS uncap** — no in-EXE fix (§4); the safe uncap is a wrapper vsync setting. The highest-value open item.
+3. ~~**One consolidated modern-Windows fix pack**~~ — **DONE**: **Starlancer Studio**
+   (`tools/slstudio_app.py`, released as `studio-v1.1`) wraps the EXE fixes, controller shim, boot-skip,
+   the editors, and a Ready-to-Play deploy wizard into one app.
 
 ## Sources
 PCGamingWiki (StarLancer), VOGONS, Wing Commander CIC, WSGF, SWAT Portal; community tools as
