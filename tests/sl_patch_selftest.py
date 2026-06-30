@@ -16,7 +16,7 @@ size and hook-site fingerprints the real engine expects, then exercises:
 No game data required, so this runs in CI. Static only: nothing is executed.
 Exit 0 = all pass.
 """
-import os, sys, json, struct, tempfile, importlib.util
+import os, sys, json, struct, tempfile, shutil, importlib.util
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -131,10 +131,20 @@ def check(cond, msg):
         print(f"  FAIL {msg}")
 
 
-def run():
+def run(keep=False):
     global PASS, FAIL
     PASS = FAIL = 0
     tmp = tempfile.mkdtemp(prefix="slpatch_test_")
+    try:
+        return _run_body(tmp)
+    finally:
+        if keep or os.environ.get("SLPATCH_KEEP_TMP"):
+            print(f"  [kept temp dir for inspection: {tmp}]")
+        else:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _run_body(tmp):
     src = os.path.join(tmp, "stock.exe")
     orig = build_synth_exe()
     with open(src, "wb") as f:
@@ -267,4 +277,4 @@ def run():
 
 
 if __name__ == "__main__":
-    sys.exit(run())
+    sys.exit(run(keep="--keep" in sys.argv))
