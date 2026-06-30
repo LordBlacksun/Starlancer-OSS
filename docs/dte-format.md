@@ -66,7 +66,7 @@ to a live pointer (`offset + image base`). `offset == 0xFFFF` marks an unused se
 | # | global | contents (✓ = stride/role verified) |
 |---|---|---|
 | 0 | `DAT_00525FA8` | string pool (names resolved by index) |
-| 1 | `DAT_00525F3C` | aux table |
+| 1 | `DAT_00525F3C` | operand-resolution array (kind 0, `FUN_004529D0`) ✓ stride `2` |
 | 2 | `DAT_005294F8` | **globals / variables** ✓ stride `0x0C` (`u16 nameIdx`, `u32 value`) |
 | 3 | `DAT_0052951C` | **ship / flight-group array** ✓ stride `0x4C`, count `DAT_00529504` |
 | 4 | `DAT_005267CC` | **objective / operand table** ✓ stride `0x14` (`FUN_00452AA0`) |
@@ -74,13 +74,28 @@ to a live pointer (`offset + image base`). `offset == 0xFFFF` marks an unused se
 | 6 | `DAT_00525F88` | **script bytecode base** ✓ (IP origin for the VM) |
 | 7 | `DAT_005267C0` | **per-ship trigger index** ✓ stride `8` (`+1` count, `+2` u16 first-index) |
 | 8 | `DAT_005267D0` | object / launch table ✓ stride `0x1C` |
-| 9 | `DAT_005256C8` | — |
+| 9 | `DAT_005256C8` | populated in 16/44 missions; record layout TBD |
 | 10 | `DAT_005294D8` | **per-bytecode-byte flag array** ✓ (VM yield map, indexed `IP − bytecode base`) |
 | 11 | `PTR_DAT_004EF2FC` | operand / target list |
 | 12 | `DAT_005294FC` | secondary trigger/condition list (count `DAT_005294F0`) |
 | 13 | `DAT_00529500` | squad / membership table ✓ stride `0x0C` |
-| 14–20, 22–26 | `DAT_00525F18`, `DAT_005256B8`, `DAT_00525FB0`, `DAT_005294EC`, `DAT_00525FB4`, `DAT_0052950C`, `DAT_00525FA0`, `DAT_00525278`, `PTR_DAT_004EE7D8`, `DAT_00525F9C`, `DAT_00525F90`, `DAT_0052570C` | present in the directory; record layouts not yet decoded (camera curves, nav/patrol routes, regions, comms, debris are the likely occupants — see the command catalogue) |
+| 14 | `DAT_00525F18` | stride `8`; entry `+4` u16 → sec 15 (rare: 3/44) |
+| 15 | `DAT_005256B8` | position / nav-geometry records ✓ stride `0x10` (rare: 3/44) |
+| 16 | `DAT_00525FB0` | **sub-object / model table** ✓ stride `0x44` (36/44; index fields + 3-D coord vectors; `FUN_004571D0`) |
+| 17 | `DAT_005294EC` | vestigial — empty in all 44 |
+| 18 | `DAT_00525FB4` | vestigial — empty in all 44 |
+| 19 | `DAT_0052950C` | vestigial — empty in all 44 |
+| 20 | `DAT_00525FA0` | vestigial — empty in all 44 |
 | 21 | (stack temp) | transient (count only) |
+| 22 | `DAT_00525278` | operand-resolution array (kind 1) ✓ stride `2` (large: ≤ 61436) |
+| 23 | `PTR_DAT_004EE7D8` | populated 40/44; record layout TBD |
+| 24 | `DAT_00525F9C` | populated 36/44; record layout TBD |
+| 25 | `DAT_00525F90` | vestigial — empty in all 44 |
+| 26 | `DAT_0052570C` | operand-resolution array (kind 2) ✓ stride `2` (rare: 3/44) |
+
+> Strides + population above come from a 44-mission `dte_parse.py sweep --sections` (offset +
+> count·stride stays in-image, **zero overflow**); "vestigial" = empty in all 44. Sections 9, 12,
+> 23, 24 are populated but their record layouts are still open (§11).
 
 ---
 
@@ -91,13 +106,24 @@ verified by decoding all 44 (`dte_parse.py decode --section ships`) plus the loa
 `FUN_00452010`/`FUN_004520A0` and the arm loop `FUN_0045CBC0`: flight-group # at `+0x00`; **name
 index** `u16` at `+0x04` (→ string pool, e.g. `Player_Ship`, `(A1)Naginata`, `(WL)Viper's
 Coyote`); **position vector** (3×`float`) at `+0x08` — the *runtime* copy, mirrored at load from
-the *authored* position at `+0x1C` by `FUN_00452010`; IFF/team byte at `+0x15`; type/role code at
-`+0x18` (special objects compared vs `0x3E3`–`0x3E5`/`999`); flag byte `+0x17` (bit0 = disabled);
+the *authored* position at `+0x1C` by `FUN_00452010`; IFF/team byte at `+0x15`; type/role code
+(**`u16`** at `+0x18`) — normal ships `< 0x100`, but special objects (nav points, jump/escort
+markers) use `0x3E3`–`0x3E8`/`999`, so a byte read truncates ~41% of records; flag byte `+0x17`
+(bit0 = disabled);
 ship-type/sub-object model indices via `FUN_004571D0` into `&DAT_00587CE0`. Coordinates are
 IEEE-754 floats. This mirrors Starlancer ME's colour-coded object record (coords, flight-group #,
-pilot/IFF, ship #, launch origin, gate #). *(Orientation angles not yet pinned — the earlier
-guess `+0x26`/`+0x32`/`+0x42` falls inside the `+0x1C` position copy; waypoint/goal sub-arrays
-also open — see §Open.)*
+pilot/IFF, ship #, launch origin, gate #).
+
+**Orientation [RESOLVED].** Three `int16` **Euler angles in whole degrees** at the *non-contiguous*
+offsets **yaw `+0x2E`, pitch `+0x3A`, roll `+0x4A`** — the *authored* set, mirrored at load to the
+runtime copy `+0x2C`/`+0x38`/`+0x48` by `FUN_00452010` and turned into a rotation by `FUN_00452240`,
+which reads exactly those three shorts and scales each by `_DAT_004dc71c = 0.01745329` (= π/180) —
+proving degrees. Verified across all 44 missions (8265 ship records; every angle ∈ [−360, 360]; a
+flight group's wingmen share a heading — e.g. `mission1`'s player + escorts are all yaw 90°). The
+earlier `+0x26`/`+0x32`/`+0x42` guess was the mirror loop's offsets *relative to the `+0x08` base*
+(`0x26 + 8 = 0x2E`). Other runtime fields touched by the arm loop `FUN_0045CBC0`: `+0x17` flag,
+`+0x1B` "claimed" byte, `+0x30` u32 handle (init `0xFFFFFFFF`). No waypoint/goal sub-array fits the
+`0x4C` record — route/curve data lives in the directory sections (§2), not the ship record.
 
 **Globals / variables** (stride `0x0C`; `DAT_005294F8`): `u16 nameIdx`, `u32 value`. Read/written
 by script opcodes `0x27`/`0x40`.
@@ -152,12 +178,14 @@ prefixed by a `u16` byte length; a thread is created by `FUN_0045B8D0` (IP at th
 `DAT_005294D8`, indexed `IP − DAT_00525F88`) marks yield points so long scripts suspend across
 frames.
 
-Two registers of meaning share the stream: **commands** (`0x21 <i>` → the Executor catalogue
-`DAT_004F3AD0`, installed by `FUN_0045CE30`) and **micro-ops** (compare / push-immediate /
-global read-write — the if/else machinery). The complete opcode, Executor-command (96), and
-AI-code (`0x32`, 0x00–0x44) tables are in
-**[`dte-scripting-reference.md`](dte-scripting-reference.md)** — including the verified
-implementation address + parameter count for ~90 of the 96 commands.
+Two registers of meaning share the stream: **commands** (`0x21 <i>` → the Executor catalogue at
+VA `0x4F0F50`, installed by `FUN_0045CE30`, dispatched by `FUN_0045BEA0`) and **micro-ops** (compare
+/ push-immediate / global read-write — the if/else machinery). The complete opcode, Executor-command
+and AI-code (`0x32`, 0x00–0x44) tables are in
+**[`dte-scripting-reference.md`](dte-scripting-reference.md)**. We now walk the catalogue in full —
+**95 real commands (`0x00`–`0x5E`)** with the developers' own names, **parameter labels** and impl
+addresses recovered from the binary — which also **corrects the command numbering** at `0x16`–`0x19`
+and `0x26`–`0x2A` (see §9).
 
 ---
 
@@ -204,7 +232,7 @@ SUCCESS vs FAIL (playing `…_001.ut` vs `…_002.ut`). `TerminateMission` ends 
 | Topic | Agreement / who has what |
 |---|---|
 | `TT_*` trigger enum | **Exact match** (33, `0x00`–`0x20`). Our `FUN_0045B330` array ≡ their *Triggers* page. |
-| Executor commands (`0x21`) | Their **indices** ≡ our **catalogue order**; we add impl address + param count for ~90/96. |
+| Executor commands (`0x21`) | We **walk the engine's live catalogue** (`0x4F0F50`; 95 cmds + impl + param labels). Indices agree **except `0x16`–`0x19` and `0x26`–`0x2A`**, where the blog mistook parameter-label text for commands (its `GTextPilotDefine`/`RadiusOfSphere`/`ShipPointToFlyTo` are the *params* of `DisplaySubTitle`/`SetActionCentre`/`Fly`; `WaitNSeconds`/`ShipToDock`/`EntityToCloak` paraphrase `Wait`/`Dock`/`Cloak`) and folds away the `CommsFromPilot`/`…Once` twins. Catalogue numbering is authoritative; blog names kept as a cross-reference. |
 | `0x27`/`0x40`/`0x3F` | Their behavioural read-mem/write-mem/jump ≡ our static read-global / global-lvalue / array-lvalue. |
 | AI codes (`0x32`), ship/pilot IDs | Their tables (we have not re-derived these numerically; adopted with credit). |
 | Win/lose, default-fail, carrier-landing tree | Their **runtime semantics** (observed in-game) — a layer pure disassembly lacks. |
@@ -213,14 +241,27 @@ SUCCESS vs FAIL (playing `…_001.ut` vs `…_002.ut`). `TerminateMission` ends 
 
 ---
 
-## 10. Open items
+## 10. Localized text & mission titles  [RESOLVED]
 
-* Full 76-byte ship record (orientation angles, waypoint/goal sub-arrays) beyond the verified
-  fg#/name/position/IFF/type fields.
-* Record layouts of directory sections 9, 14–20, 22–26 (curves, routes, regions, comms, debris).
-* The 6 blog-only Executor entries' implementations (`WaitNSeconds`, `GTextPilotDefine`,
-  `RadiusOfSphere`, `ShipToDock`, `ShipPointToFlyTo`, `EntityToCloak`).
+Campaign **mission titles** — and most front-end / campaign UI text — are **Win32 string-table
+(`RT_STRING`) resources in the external `language.dll`**, not in `.text`, the `.HOG`, or the `.DTE`.
+At startup `FUN_00490DC0` does `LoadLibraryA("language.dll")`, then enumerates strings with
+`LoadStringA` (id from 1 upward) into a pointer array `DAT_0057DBBC` (count `DAT_0057DBC0`; backing
+store + array allocated via `SR_MEM_allocate`, tagged `C:\lancer\game\language.cpp`). The accessor
+`FUN_00491030(id)` returns `DAT_0057DBBC[id − 1]` (**1-based**; out-of-range → debug *"invalid
+language string %d"*, matching the embedded assert *"(string_number − FIRST_RESOURCE_ID) ≥ 0 && … <
+num_language_strings"*). The mission-title call site indexes a u16 string-ID table `DAT_004E5C78[slot]`
+(with per-region remaps `0xB`/`0xC`→`0xE`, `0x10`→`0x12`, `0x15`→`0x17`) and passes the id to
+`FUN_00491030`. So a plain string search for title text in the exe fails *by design* — the strings
+live in `language.dll` (a sibling `itac_language.dll` holds tactical-computer text). `language.dll`
+is a loose game file, not part of our extracted data, so this is code-proven rather than resource-walked.
+
+## 11. Open items
+
+* Record layouts of the still-undecoded **populated** sections — 9 (16/44), 12 (34/44), 23 (40/44),
+  24 (36/44) — plus deep field decode of sec 15 (nav geometry) and sec 16 (sub-object/model table).
 * Pilot → faction (IFF) binding; exact `0x28`/`0x23` compare semantics.
+* RefPack **encoder** + HOG repack for a full read-modify-write mission editor (the decode side is done).
 
 ## Related
 [`dte-scripting-reference.md`](dte-scripting-reference.md) · [[stats-format.md]] ·
