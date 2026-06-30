@@ -14,8 +14,13 @@ data, stats, etc.).
 
 ---
 
-## TL;DR — two paths
+## TL;DR — three paths
 
+- **Easiest "do it for me"** → **[Starlancer Studio](https://github.com/LordBlacksun/Starlancer-OSS/releases/tag/studio-v1.1)**,
+  the all-in-one app: its **Ready-to-Play** wizard stages a complete patched copy (EXE fixes + controller
+  shim + blanked logos + your graphics/audio drop-ins) into an output folder, and its **Dashboard** applies
+  the recommended fixes to an existing install in one click. The manual steps below are those same fixes by
+  hand, for when you want the detail.
 - **Minimal "just boot it"** → (1) a DRM-free exe, (2) dgVoodoo2, (3) enable
   DirectPlay. That's usually enough to reach the menu.
 - **Full "modern Starlancer"** → the above **+** `sl_patch.py` (widescreen + crash

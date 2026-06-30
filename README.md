@@ -10,6 +10,26 @@ Open-source reverse-engineering tools and documentation for **Starlancer**
 > binaries, assets, or other copyrighted material, and none should ever be committed
 > here (see `.gitignore`).
 
+## Starlancer Studio — the all-in-one app
+
+**[⬇ Download `StarlancerStudio.exe`](https://github.com/LordBlacksun/Starlancer-OSS/releases/tag/studio-v1.1)** · Windows, no install · verify with [`SHA256SUMS.txt`](https://github.com/LordBlacksun/Starlancer-OSS/releases/tag/studio-v1.1)
+
+[`tools/slstudio_app.py`](tools/slstudio_app.py) is a single desktop app (and a one-file `.exe`) that
+fronts the whole toolchain in a dark "Alliance Naval Command" cockpit — **eight sections**:
+
+- **Dashboard** — at-a-glance status of your install (the three EXE fixes, controller shim, boot logos),
+  a one-click **Apply Recommended Fixes**, and a backup / restore manager.
+- **Patcher** — widescreen Hor+ and the RE'd crash fixes, per-fix verify / revert.
+- **Ship Switcher**, **Stats Editor**, **HOG Tools** — the editors, in a GUI.
+- **Controller Shim** — install the XInput → DirectInput proxy for modern pads.
+- **Boot Videos** — blank the startup branding logos.
+- **Ready-to-Play** — a wizard that stages a complete, patched, ready-to-run copy into an output folder.
+
+Like every tool here it is **static — it reads and patches local copies only and never launches the
+game.** The only third-party runtime dependency (`customtkinter`) is bundled. *As a one-file PyInstaller
+build, some antivirus heuristics may flag it — a common false positive; the full source is in this repo,
+and the release ships a `SHA256SUMS.txt` to verify your download.*
+
 ## Documentation
 
 **Formats & archives**
@@ -58,7 +78,8 @@ launch the game.
 |------|-------------|
 | [`tools/slstats.py`](tools/slstats.py) | Ship / weapon **stat editor** (the stat `.BIN` tables). |
 | [`tools/slswitch.py`](tools/slswitch.py) | **Coalition ship-switcher** (data-layer `.shp` swap in the HOG). |
-| [`tools/slstudio.py`](tools/slstudio.py) | Tkinter **GUI** over the stat editor + ship switcher. |
+| [`tools/slstudio_app.py`](tools/slstudio_app.py) | **Starlancer Studio** — the all-in-one GUI (see [above](#starlancer-studio--the-all-in-one-app)); fronts every tool. |
+| [`tools/slstudio.py`](tools/slstudio.py) | Legacy 2-tab Tkinter GUI (stdlib-only fallback). |
 
 **Modern-systems fixes** (patch a *local copy* of your own exe / `.HOG` — never the original, never run)
 | Path | Description |
@@ -72,6 +93,8 @@ launch the game.
 | Path | Description |
 |------|-------------|
 | [`tools/pe_inspect.py`](tools/pe_inspect.py) | Read-only PE header / section / entropy / imports inspector. |
+| [`tools/pe_icon.py`](tools/pe_icon.py) | Read-only PE **app-icon extractor** (rebuilds a `.ico` from `RT_GROUP_ICON`/`RT_ICON`; never executes the target). |
+| [`tools/make_icon.py`](tools/make_icon.py) | Generator for Starlancer Studio's **original** app icon (PIL primitives — no game art). |
 | [`tools/bin_explore.py`](tools/bin_explore.py) · [`tools/bin_diff.py`](tools/bin_diff.py) | Generic binary explore / diff helpers. |
 | [`tools/map_engine.py`](tools/map_engine.py) | Cluster decompiled functions into subsystems (builds the engine map). |
 | [`tools/ghidra_headless.ps1`](tools/ghidra_headless.ps1) + [`tools/ghidra_scripts/ExportAll.java`](tools/ghidra_scripts/ExportAll.java) | Headless Ghidra import / analyze / export automation. |
@@ -104,11 +127,12 @@ tables (editor + GUI), the Coalition ship-switcher, and the `.DTE` mission forma
 container is decoded end-to-end** (`dte_parse.py` decodes all 44 missions: directory, ships,
 triggers, and the script bytecode) plus the full scripting opcode/command reference. A
 **modern-Windows fix catalogue** ([`docs/modern-fixes.md`](docs/modern-fixes.md)), fusing
-community fixes with our RE, ships with a boot-video-skip tool and — **new** — **native Hor+
-widescreen** ([`tools/ws_patch.py`](tools/ws_patch.py)): a static EXE patch that gives the Direct3D 7
-renderer a correct wide field of view at any resolution (no such fix existed before). In progress:
-the `.SHP` ship-model format; next modern-systems targets are the 100-FPS uncap and multi-core
-stability.
+community fixes with our RE, ships with a boot-video-skip tool, **native Hor+ widescreen**, and the
+RE'd **crash fixes** (medal-case, multi-core) — all via the [`tools/sl_patch.py`](tools/sl_patch.py)
+declarative patch-pack (per-fix verify / revert), and all wrapped together with the editors and the
+controller shim in the **[Starlancer Studio](#starlancer-studio--the-all-in-one-app)** app. In progress:
+the `.SHP` ship-model format; the main remaining modern-systems target is the 100-FPS uncap (a vsync /
+wrapper matter, not an exe patch).
 
 ## Contributing
 
