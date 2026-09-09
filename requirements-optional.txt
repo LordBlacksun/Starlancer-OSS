@@ -3,7 +3,7 @@
 #
 #   hog_extract.py  hog_pack.py  slstats.py  slswitch.py  sl_patch.py
 #   ws_patch.py  dte_parse.py  bin_diff.py  bin_explore.py  map_engine.py
-#   pe_inspect.py  blank_boot_videos.py  check_no_game_data.py
+#   pe_inspect.py  blank_boot_videos.py  check_no_game_data.py  slstudio_core.py
 #
 # Install only what you actually want:
 #
@@ -12,6 +12,11 @@ customtkinter>=5.2
 #
 #   Icon tooling (tools/make_icon.py, tools/pe_icon.py) and the frozen-exe build
 Pillow>=9.0
+#
+#   The function-level emulator (tools/sl_emu.py), which executes ONE routine out
+#   of a local copy of the image in a sandboxed CPU emulator to measure what it
+#   computes. It never launches the game: no process, no window, no audio.
+unicorn>=2.0
 #
 #   Building the standalone Starlancer Studio executable (tools/build.bat)
 pyinstaller>=6.0

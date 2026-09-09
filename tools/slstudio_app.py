@@ -32,6 +32,7 @@ import contextlib
 import threading
 import queue
 import re
+import time
 
 try:
     import tkinter as tk
@@ -69,6 +70,7 @@ import slswitch         # noqa: E402  Coalition ship-switcher
 import hog_pack         # noqa: E402  .HOG (BIGF) writer
 import hog_extract      # noqa: E402  .HOG (BIGF) reader
 import sl_patch         # noqa: E402  modern-systems EXE patch pack
+import slstudio_core as core          # noqa: E402  headless install logic (no Tk)
 import blank_boot_videos as bootvid   # noqa: E402  startup-logo blanker
 
 
@@ -245,75 +247,24 @@ class GameContext:
 
 
 # ===================================================== install-status helpers ===
-# Pure read-only probes shared by the Patcher verify strip and the Dashboard, so
-# there is exactly one implementation of each "what state is this install in?".
-def patch_states(exe_path):
-    """Per-fix EXE patch state. -> (dict{key:(state, desc)}, manifest|None, sha_ok|None).
-    state in {patched, stock, unknown}. Reuses sl_patch's verify primitives."""
-    states = {}
-    if not exe_path or not os.path.exists(exe_path):
-        return states, None, None
-    try:
-        data = sl_patch._load(exe_path)
-        pe = sl_patch.parse_pe(data)
-    except Exception:
-        return states, None, None
-    for key in ("widescreen", "fix-medal", "fix-multicore"):
-        defn = sl_patch.REGISTRY.get(key)
-        if not defn:
-            continue
-        try:
-            state = defn.verify_state(pe, data)
-            desc = (defn.describe_applied(pe, data) or "") if (
-                state == "patched" and defn.describe_applied) else ""
-        except Exception:
-            state, desc = "unknown", ""
-        states[key] = (state, desc)
-    man = sl_patch._read_manifest(exe_path)
-    sha_ok = None
-    if man:
-        try:
-            sha_ok = (sl_patch._sha(data) == man.get("output_sha256"))
-        except Exception:
-            sha_ok = None
-    return states, man, sha_ok
+# These live in slstudio_core, which is standard-library only and imports with no
+# GUI toolkit present. Keeping them there rather than here is what lets
+# tests/run_all.py exercise Studio's logic on every platform: this module cannot
+# be imported at all without customtkinter. Re-exported under their old names so
+# the sections below read unchanged.
+patch_states = core.patch_states
+bootvid_status = core.bootvid_status
+recommended_selections = core.recommended_selections
+describe_selections = core.describe_selections
+retire_manifest = core.retire_manifest
+classify_exe = core.classify_exe
+scan_install = core.scan
 
 
 def shim_status(folder):
-    """XInput-shim install state. -> (state, has_backup). state in {ours, other, absent}."""
-    if not folder or not os.path.isdir(folder):
-        return "absent", False
-    dest = os.path.join(folder, "dinput.dll")
-    has_backup = os.path.exists(dest + ".xinput-bak")
-    if not os.path.exists(dest):
-        return "absent", has_backup
-    try:
-        src = resource_path(os.path.join("xinput_shim", "dinput.dll"))
-        if os.path.exists(src) and os.path.getsize(src) == os.path.getsize(dest):
-            with open(src, "rb") as a, open(dest, "rb") as b:
-                if a.read() == b.read():
-                    return "ours", has_backup
-    except Exception:
-        pass
-    return "other", has_backup
-
-
-def bootvid_status(folder):
-    """Loose boot-logo state. -> (present[names], blanked[names]). blanked == has .orig."""
-    present, blanked = [], []
-    if not folder or not os.path.isdir(folder):
-        return present, blanked
-    try:
-        by_lower = {f.lower(): f for f in os.listdir(folder)}
-    except Exception:
-        return present, blanked
-    for name in LOOSE_LOGOS:                          # resolved at call time (defined below)
-        actual = by_lower.get(name.lower())
-        if actual:
-            present.append(actual)
-            if (name.lower() + ".orig") in by_lower:
-                blanked.append(actual)
-    return present, blanked
+    """XInput-shim state. Core does the comparison; the app supplies the bundled
+    proxy, whose path only this module can resolve (PyInstaller's _MEIPASS)."""
+    return core.shim_status(folder, resource_path(os.path.join("xinput_shim", "dinput.dll")))
 
 
 # ============================================================ small UI helpers ==
@@ -500,8 +451,23 @@ class Section(ctk.CTkFrame):
         self.head_status.configure(text=text, text_color=col)
 
     def default_error(self, e):
+        """Every worker exception lands here, on the main thread.
+
+        PermissionError is the one users actually hit (the game installed under
+        Program Files, or Studio started without elevation), so it gets the
+        actionable message rather than a raw OSError string. Sections must NOT
+        wrap run_async/run_steps in their own try/except: those return as soon as
+        the thread starts, so such a handler is unreachable.
+        """
         self.status("FAULT", "err")
-        msg = str(e) if (str(e) and str(e) != "None") else repr(e)
+        if isinstance(e, PermissionError):
+            where = getattr(e, "filename", None)
+            msg = ("Permission denied%s\n\nWindows refused the write. Either run "
+                   "Starlancer Studio as administrator, or copy the game to a "
+                   "writable folder outside Program Files and point Studio there."
+                   % (": " + where if where else ""))
+        else:
+            msg = str(e) if (str(e) and str(e) != "None") else repr(e)
         if hasattr(self, "log"):
             self.log.block(msg, "err")
         messagebox.showerror(self.TITLE.title(), msg)
@@ -655,47 +621,52 @@ class PatcherFrame(Section):
         fx.grid_columnconfigure(0, weight=1)
         panel_title(fx, "FIXES").grid(row=0, column=0, sticky="w", padx=14, pady=(12, 6))
 
-        self.ws_on = tk.BooleanVar(value=True)
-        self.medal_on = tk.BooleanVar(value=True)
-        self.mc_on = tk.BooleanVar(value=True)
         self.force_on = tk.BooleanVar(value=False)
 
-        ws_row = ctk.CTkFrame(fx, fg_color="transparent")
-        ws_row.grid(row=1, column=0, sticky="ew", padx=14, pady=2)
-        ctk.CTkCheckBox(ws_row, text="Widescreen Hor+", variable=self.ws_on,
-                        font=F["body_sb"], text_color=TXT, command=self._sync,
-                        checkbox_width=20, checkbox_height=20, corner_radius=3,
-                        fg_color=CYAN_D, hover_color=CYAN,
-                        border_color=LINE2).pack(side="left")
-        self.res_var = tk.StringVar(value="1920 x 1080")
-        self.res_menu = ctk.CTkOptionMenu(ws_row, values=RES_PRESETS,
-                                          variable=self.res_var, command=lambda _=None: self._sync(),
-                                          width=140, font=F["mono_sm"], dropdown_font=F["mono_sm"],
-                                          fg_color=BG0, button_color=BG3, button_hover_color=LINE2,
-                                          text_color=TXT, dropdown_fg_color=BG2,
-                                          dropdown_text_color=TXT, corner_radius=3)
-        self.res_menu.pack(side="left", padx=(12, 6))
-        self.cw = tk.StringVar(value="1920")
-        self.ch = tk.StringVar(value="1080")
-        self.cw_e = hud_entry(ws_row, textvariable=self.cw, width=64)
-        self.cw_e.pack(side="left")
-        ctk.CTkLabel(ws_row, text="×", font=F["body"], text_color=TXT_D).pack(side="left", padx=4)
-        self.ch_e = hud_entry(ws_row, textvariable=self.ch, width=64)
-        self.ch_e.pack(side="left")
+        # Fix rows are GENERATED from sl_patch's registry, not listed here. A new
+        # PatchDefinition therefore shows up in this panel, in the LED strip, on the
+        # Dashboard and in the deploy wizard with no GUI edit at all. Whichever fix
+        # declares needs_params carries the resolution controls on its own row.
+        self.fix_vars = {}
+        self._param_fix = None
+        fix_defs = sl_patch.ordered_fixes()
 
-        ctk.CTkCheckBox(fx, text="Fix medal-case crash   (3 Bink opens used the wrong handle)",
-                        variable=self.medal_on, font=F["body"], text_color=TXT,
-                        checkbox_width=20, checkbox_height=20, corner_radius=3,
-                        fg_color=CYAN_D, hover_color=CYAN, border_color=LINE2
-                        ).grid(row=2, column=0, sticky="w", padx=14, pady=4)
-        ctk.CTkCheckBox(fx, text="Fix multi-core crash   (pin to one core at startup)",
-                        variable=self.mc_on, font=F["body"], text_color=TXT,
-                        checkbox_width=20, checkbox_height=20, corner_radius=3,
-                        fg_color=CYAN_D, hover_color=CYAN, border_color=LINE2
-                        ).grid(row=3, column=0, sticky="w", padx=14, pady=4)
+        for i, defn in enumerate(fix_defs):
+            var = tk.BooleanVar(value=defn.recommended)
+            self.fix_vars[defn.id] = var
+            row = ctk.CTkFrame(fx, fg_color="transparent")
+            row.grid(row=1 + i, column=0, sticky="ew", padx=14,
+                     pady=2 if defn.needs_params else 4)
+            ctk.CTkCheckBox(row, text=defn.caption, variable=var,
+                            font=F["body_sb"] if defn.needs_params else F["body"],
+                            text_color=TXT, command=self._sync,
+                            checkbox_width=20, checkbox_height=20, corner_radius=3,
+                            fg_color=CYAN_D, hover_color=CYAN,
+                            border_color=LINE2).pack(side="left")
+            if defn.needs_params and self._param_fix is None:
+                self._param_fix = defn.id
+                self.res_var = tk.StringVar(value="1920 x 1080")
+                self.res_menu = ctk.CTkOptionMenu(row, values=RES_PRESETS,
+                                                  variable=self.res_var,
+                                                  command=lambda _=None: self._sync(),
+                                                  width=140, font=F["mono_sm"],
+                                                  dropdown_font=F["mono_sm"],
+                                                  fg_color=BG0, button_color=BG3,
+                                                  button_hover_color=LINE2,
+                                                  text_color=TXT, dropdown_fg_color=BG2,
+                                                  dropdown_text_color=TXT, corner_radius=3)
+                self.res_menu.pack(side="left", padx=(12, 6))
+                self.cw = tk.StringVar(value="1920")
+                self.ch = tk.StringVar(value="1080")
+                self.cw_e = hud_entry(row, textvariable=self.cw, width=64)
+                self.cw_e.pack(side="left")
+                ctk.CTkLabel(row, text="×", font=F["body"],
+                             text_color=TXT_D).pack(side="left", padx=4)
+                self.ch_e = hud_entry(row, textvariable=self.ch, width=64)
+                self.ch_e.pack(side="left")
 
         force_row = ctk.CTkFrame(fx, fg_color="transparent")
-        force_row.grid(row=4, column=0, sticky="w", padx=14, pady=(6, 12))
+        force_row.grid(row=1 + len(fix_defs), column=0, sticky="w", padx=14, pady=(6, 12))
         ctk.CTkCheckBox(force_row, text="Force", variable=self.force_on,
                         font=F["body"], text_color=AMBER, checkbox_width=20,
                         checkbox_height=20, corner_radius=3, fg_color=AMBER,
@@ -709,21 +680,20 @@ class PatcherFrame(Section):
         vp.grid(row=1, column=1, sticky="nsew", padx=(12, 0), pady=(12, 0))
         panel_title(vp, "PATCH STATE").grid(row=0, column=0, sticky="w", padx=14, pady=(12, 8))
         self.leds = {}
-        for i, (key, lab) in enumerate((("widescreen", "WIDESCREEN"),
-                                        ("fix-medal", "MEDAL-CASE"),
-                                        ("fix-multicore", "MULTI-CORE"))):
+        for i, defn in enumerate(fix_defs):
             row = ctk.CTkFrame(vp, fg_color="transparent")
             row.grid(row=1 + i, column=0, sticky="ew", padx=14, pady=3)
             led = LED(row, color=TXT_DD, bg=BG2)
             led.pack(side="left", padx=(0, 8))
-            ctk.CTkLabel(row, text=lab, font=F["mono_sm"], text_color=TXT_D,
+            ctk.CTkLabel(row, text=defn.label, font=F["mono_sm"], text_color=TXT_D,
                          width=92, anchor="w").pack(side="left")
             val = ctk.CTkLabel(row, text="—", font=F["mono_sm"], text_color=TXT_DD)
             val.pack(side="left")
-            self.leds[key] = (led, val)
+            self.leds[defn.id] = (led, val)
         self.sha_lbl = ctk.CTkLabel(vp, text="manifest —", font=F["mono_sm"],
                                     text_color=TXT_DD, anchor="w")
-        self.sha_lbl.grid(row=4, column=0, sticky="ew", padx=14, pady=(8, 12))
+        self.sha_lbl.grid(row=1 + len(fix_defs), column=0, sticky="ew",
+                          padx=14, pady=(8, 12))
 
         # --- actions ----------------------------------------------------------
         acts = ctk.CTkFrame(b, fg_color="transparent")
@@ -772,8 +742,37 @@ class PatcherFrame(Section):
         if p:
             self.out_var.set(p)
 
+    def on_show(self):
+        """Seed from the install picked on another tab, and show its patch state.
+
+        Only EMPTY fields are filled, so anything browsed or typed here wins and a
+        deliberate choice is never overwritten on a tab switch. The output defaults
+        to a NEW file beside the input: sl_patch writes the copy and the install's
+        own exe is only ever read. The state strip is refreshed only when the file
+        parses as a PE, so pointing Studio at a SafeDisc loader does not throw an
+        error dialog merely for opening this tab.
+        """
+        exe = self.app.game.exe
+        if not exe or not os.path.exists(exe):
+            return
+        seeded = False
+        if not self.in_var.get().strip():
+            self.in_var.set(exe)
+            seeded = True
+        src = self.in_var.get().strip()
+        if not self.out_var.get().strip():
+            stem, ext = os.path.splitext(src)
+            self.out_var.set(stem + "_patched" + (ext or ".exe"))
+        if seeded:
+            self.log.line("seeded from the selected install: " + src, "dim")
+        states, _man, _sha = patch_states(src)
+        if states:
+            self._do_verify(src)
+
     def _sync(self):
-        ws = self.ws_on.get()
+        if not self._param_fix:            # no fix wants parameters: nothing to gate
+            return
+        ws = self.fix_vars[self._param_fix].get()
         custom = self.res_var.get().startswith("Custom")
         self.res_menu.configure(state="normal" if ws else "disabled")
         for e in (self.cw_e, self.ch_e):
@@ -790,19 +789,20 @@ class PatcherFrame(Section):
         except Exception:
             return 1920, 1080
 
+    def _params_for(self, defn):
+        """Parameters for one fix. Only needs_params fixes take any; today that is
+        widescreen and its width/height, read from the preset menu or the custom
+        entries. sl_patch validates them, so this only has to read the widgets."""
+        if not defn.needs_params:
+            return {}
+        if self.res_var.get().startswith("Custom"):
+            return dict(width=int(self.cw.get()), height=int(self.ch.get()))
+        w, h = self._res_from_preset()
+        return dict(width=w, height=h)
+
     def _selections(self):
-        sel = []
-        if self.ws_on.get():
-            if self.res_var.get().startswith("Custom"):
-                w, h = int(self.cw.get()), int(self.ch.get())
-            else:
-                w, h = self._res_from_preset()
-            sel.append(("widescreen", dict(width=w, height=h)))
-        if self.medal_on.get():
-            sel.append(("fix-medal", {}))
-        if self.mc_on.get():
-            sel.append(("fix-multicore", {}))
-        return sel
+        return [(d.id, self._params_for(d))
+                for d in sl_patch.ordered_fixes() if self.fix_vars[d.id].get()]
 
     def _guard_io(self, need_out=True):
         ip = self.in_var.get().strip()
@@ -1747,12 +1747,10 @@ class ControllerFrame(Section):
             self.status("INSTALLED", "ok")
             messagebox.showinfo("Installed", "XInput shim installed to:\n%s\n\nNothing was launched." % folder)
 
-        try:
-            self.run_async(work, done, busy="INSTALLING")
-        except PermissionError:
-            messagebox.showerror("Permission denied",
-                                 "Can't write to that folder. Run as administrator, or copy the "
-                                 "game somewhere writable.")
+        # No try/except here: run_async returns the moment the thread starts, so a
+        # handler around this call never sees the worker's error. PermissionError is
+        # routed to Section.default_error, which words it for this exact case.
+        self.run_async(work, done, busy="INSTALLING")
 
     def _uninstall(self):
         folder = self.dir_var.get().strip()
@@ -2255,20 +2253,19 @@ class DashboardFrame(Section):
         fp.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         panel_title(fp, "SYSTEM FIXES").grid(row=0, column=0, sticky="w", padx=14, pady=(12, 8))
         self.fix_leds = {}
-        for i, (key, lab) in enumerate((("widescreen", "WIDESCREEN"),
-                                        ("fix-medal", "MEDAL-CASE"),
-                                        ("fix-multicore", "MULTI-CORE"))):
+        dash_fixes = sl_patch.ordered_fixes()
+        for i, defn in enumerate(dash_fixes):
             row = ctk.CTkFrame(fp, fg_color="transparent")
             row.grid(row=1 + i, column=0, sticky="ew", padx=14, pady=3)
             led = LED(row, color=TXT_DD, bg=BG2)
             led.pack(side="left", padx=(0, 8))
-            ctk.CTkLabel(row, text=lab, font=F["mono_sm"], text_color=TXT_D,
+            ctk.CTkLabel(row, text=defn.label, font=F["mono_sm"], text_color=TXT_D,
                          width=92, anchor="w").pack(side="left")
             val = ctk.CTkLabel(row, text="—", font=F["mono_sm"], text_color=TXT_DD)
             val.pack(side="left")
-            self.fix_leds[key] = (led, val)
+            self.fix_leds[defn.id] = (led, val)
         self.man_lbl = ctk.CTkLabel(fp, text="manifest —", font=F["tiny"], text_color=TXT_DD, anchor="w")
-        self.man_lbl.grid(row=4, column=0, sticky="ew", padx=14, pady=(6, 12))
+        self.man_lbl.grid(row=1 + len(dash_fixes), column=0, sticky="ew", padx=14, pady=(6, 12))
 
         cp = hud_panel(cards)
         cp.grid(row=0, column=1, sticky="nsew", padx=6)
@@ -2427,10 +2424,12 @@ class DashboardFrame(Section):
 
         def work():
             shutil.copyfile(src, dst)
-            return target
+            return retire_manifest(dst)      # stale sidecar would misreport the restore
 
-        def done(_):
+        def done(retired):
             self.log.line("restored %s → %s" % (bak, target), "ok")
+            if retired:
+                self.log.line("retired stale patch manifest → " + retired, "warn")
             self.refresh()
 
         self.run_async(work, done, busy="RESTORING")
@@ -2481,11 +2480,11 @@ class DashboardFrame(Section):
             if not os.path.exists(bak):
                 shutil.copyfile(exe, bak)
                 out.append(("backed up Lancer.exe → Lancer.exe.bak", "ok"))
-            sel = [("widescreen", dict(width=w, height=h)), ("fix-medal", {}), ("fix-multicore", {})]
+            sel = recommended_selections(w, h)
             ok, _rc, text = run_capturing(sl_patch.apply, bak, exe, sel, force=False)
             if not ok:
                 raise RuntimeError("exe patch refused:\n" + (text or "").strip())
-            out.append(("patched Lancer.exe: widescreen %dx%d + medal-case + multi-core" % (w, h), "ok"))
+            out.append(("patched Lancer.exe: " + describe_selections(sel), "ok"))
 
             dest = os.path.join(folder, "dinput.dll")
             if os.path.exists(bundled_dll):
@@ -2658,8 +2657,8 @@ class DeployFrame(Section):
         return copied
 
     def _write_notes(self, dst, o):
-        fixes = ("widescreen %dx%d + medal-case + multi-core" % (o["w"], o["h"]) if o["do_ws"]
-                 else "medal-case + multi-core")
+        fixes = describe_selections(
+            recommended_selections(o["w"], o["h"], include_params=o["do_ws"]))
         lines = ["STARLANCER — READY-TO-PLAY BUILD",
                  "Assembled by Starlancer Studio. The game was NOT launched during assembly.",
                  "", "Applied:", "  - EXE fixes: " + fixes]
@@ -2700,15 +2699,11 @@ class DeployFrame(Section):
             bak = exe + ".bak"
             if not os.path.exists(bak):
                 shutil.copyfile(exe, bak)
-            sel = [("fix-medal", {}), ("fix-multicore", {})]
-            if o["do_ws"]:
-                sel.insert(0, ("widescreen", dict(width=o["w"], height=o["h"])))
+            sel = recommended_selections(o["w"], o["h"], include_params=o["do_ws"])
             ok, _rc, text = run_capturing(sl_patch.apply, bak, exe, sel, force=False)
             if not ok:
                 raise RuntimeError("exe patch refused:\n" + (text or "").strip())
-            return "patched Lancer.exe: " + (
-                "widescreen %dx%d + medal + multicore" % (o["w"], o["h"]) if o["do_ws"]
-                else "medal + multicore")
+            return "patched Lancer.exe: " + describe_selections(sel)
 
         def s_shim():
             dll = resource_path(os.path.join("xinput_shim", "dinput.dll"))

@@ -26,6 +26,15 @@ CHECKS = [
      [sys.executable, os.path.join("tests", "sl_patch_selftest.py")]),
     ("shp model parser self-test",
      [sys.executable, os.path.join("tools", "shp_parse.py"), "--selftest"]),
+    # Studio's logic, with no GUI toolkit involved. slstudio_app.py cannot be
+    # imported without customtkinter, so before slstudio_core.py existed no check
+    # here touched the app at all and the Linux CI leg covered none of it.
+    ("studio core self-test (headless)",
+     [sys.executable, os.path.join("tools", "slstudio_core.py"), "selftest"]),
+    # Skips itself cleanly when unicorn is absent, so CI legs without the optional
+    # dependency stay green while machines that have it verify the harness.
+    ("emulation harness self-test (synthetic program)",
+     [sys.executable, os.path.join("tools", "sl_emu.py"), "selftest"]),
     ("game-data guard (tracked tree)",
      [sys.executable, os.path.join("tools", "check_no_game_data.py")]),
 ]

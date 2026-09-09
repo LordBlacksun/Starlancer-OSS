@@ -124,6 +124,16 @@ Both caves live in `.text` slack (no new section; size unchanged — 61 bytes ch
 statically verified (capstone disasm + an FOV table; the exe is never executed). Representative FOV
 (vertical fixed ≈64°): **16:9 → ~96° H**, **16:10 → ~90° H**, **21:9 → ~112° H**.
 
+**Now verified by measurement as well** (2026-09-09). `tools/sl_emu.py` executes `FUN_004C3A60`
+itself inside a CPU emulator — one function, no process, no window, the game never launched — and
+reads the scales it writes. Stock output is square only at 4:3 and stretched by exactly the aspect
+error elsewhere (**x/y = 1.33339 at 1920×1080**); patched output is square at every widescreen
+resolution (**1.00004**) and bit-identical to stock at 4:3. Two findings came out of it: the engine
+constant is **K = 0.1**, and the projection cave is **resolution-independent** — it divides by the
+live device globals, so a build patched for 1920×1080 produces identical scales at 3440×1440. The
+`WxH` argument only bakes which mode the flight code requests. Full method, tables and limits:
+[`emulation-harness.md`](emulation-harness.md).
+
 **Caveats.** Widths >1280 may still hit the back/Z-buffer ceiling inside `srddraw.dll` (outside our
 static view) — pair with a wrapper and verify in-game. Native-widescreen **menus** and repositioning
 the few 320×240-grid **flight HUD widgets** are deferred to **v2** (the core flight HUD — radar,

@@ -87,6 +87,7 @@ launch the game.
 | [`tools/slstats.py`](tools/slstats.py) | Ship / weapon **stat editor** (the stat `.BIN` tables). |
 | [`tools/slswitch.py`](tools/slswitch.py) | **Coalition ship-switcher** (data-layer `.shp` swap in the HOG). |
 | [`tools/slstudio_app.py`](tools/slstudio_app.py) | **Starlancer Studio** — the all-in-one GUI (see [above](#starlancer-studio--the-all-in-one-app)); fronts every tool. |
+| [`tools/slstudio_core.py`](tools/slstudio_core.py) | **Studio's headless core** — install scan, exe classification (stock / patched / SafeDisc loader, each with its evidence), patch state, shim and logo probes. Standard library only, no GUI toolkit, so it runs and is tested on every platform. `scan <folder> [--json]`. |
 | [`tools/slstudio.py`](tools/slstudio.py) | Legacy 2-tab Tkinter GUI (stdlib-only fallback). |
 
 **Modern-systems fixes** (patch a *local copy* of your own exe / `.HOG` — never the original, never run)
@@ -94,6 +95,7 @@ launch the game.
 |------|-------------|
 | [`tools/sl_patch.py`](tools/sl_patch.py) | **Modern-systems patch pack** — one declarative code-cave engine applying any subset of the static EXE fixes (`--widescreen WxH` Hor+, `--fix-medal`, `--fix-multicore`) with a sidecar manifest and per-fix `--verify` / `--revert` / `--revert-only`. (`--fps` explains the cap; it's a vsync/wrapper matter, not an exe patch.) |
 | [`tools/ws_patch.py`](tools/ws_patch.py) | **Deprecated alias** for `sl_patch.py --widescreen` — keeps the old `--width/--height` CLI working (byte-identical output). |
+| [`tools/sl_emu.py`](tools/sl_emu.py) | **Function-level emulator** — executes ONE routine out of a local image copy inside a sandboxed CPU emulator and reports what it computes and every store it makes. Used to verify the widescreen fix by measurement. **Never launches the game**: no process, no window, no audio. Needs `unicorn` (optional). See [`docs/emulation-harness.md`](docs/emulation-harness.md). |
 | [`tools/blank_boot_videos.py`](tools/blank_boot_videos.py) | Skip the boot Bink movies by blanking them in a `.HOG`. |
 | [`tools/xinput_shim/`](tools/xinput_shim) | **XInput controller shim** — a proxy `dinput.dll` (C, 32-bit) that forwards keyboard/mouse to real DirectInput and synthesizes the joystick from XInput with **separate triggers** (no-rumble v1). Source + `build.bat` + test host. |
 
@@ -125,6 +127,8 @@ python tools/dte_parse.py ref exec                          # print the Executor
 python tools/dte_parse.py decode mission1.dte               # decompress (RefPack) + decode a mission
 python tools/sl_patch.py --fov-table                        # preview the Hor+ widescreen FOV per aspect
 python tools/sl_patch.py --widescreen 1920x1080 in.exe out.exe      # patch a local exe copy
+python tools/sl_emu.py compare stock.exe patched.exe        # MEASURE the fix (emulated, never launched)
+python tools/slstudio_core.py scan "D:\Games\Starlancer"   # what state is this install in?
 python tests/run_all.py                                     # run the full self-test gate
 ```
 

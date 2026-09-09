@@ -142,8 +142,18 @@ def _cave_base(pe):
 # guards, idempotency and revert are all handled centrally.
 
 class PatchDefinition:
+    """One declarative fix.
+
+    The first block is the engine's: where to hook, how to build the cave, how to
+    read the state back. The second block is presentation, and exists so that every
+    front-end (the CLI's --list, Studio's Patcher, Dashboard and deploy wizard)
+    derives its fix list from this registry instead of hard-coding one of its own.
+    Adding a fourth PatchDefinition should require no edit to any front-end.
+    """
+
     def __init__(self, id, summary, sites, build,
-                 verify_state, describe_applied=None, needs_params=False):
+                 verify_state, describe_applied=None, needs_params=False,
+                 label=None, caption=None, recommended=True):
         self.id = id
         self.summary = summary
         self.sites = sites
@@ -151,6 +161,10 @@ class PatchDefinition:
         self.verify_state = verify_state
         self.describe_applied = describe_applied
         self.needs_params = needs_params
+        # --- presentation (front-ends read these; the engine never does) ------
+        self.label = label or id.replace("fix-", "").replace("-", " ").upper()
+        self.caption = caption or summary
+        self.recommended = recommended
 
 
 # --------------------------------------------------------------------------------
@@ -244,6 +258,8 @@ WIDESCREEN = PatchDefinition(
     verify_state=_ws_verify_state,
     describe_applied=_ws_describe,
     needs_params=True,
+    label="WIDESCREEN",
+    caption="Widescreen Hor+",
 )
 
 
@@ -342,6 +358,8 @@ FIX_MEDAL = PatchDefinition(
     sites=[dict(va=va, orig=MEDAL_ORIG, hook_len=5) for va in MEDAL_SITES],
     build=_medal_build,
     verify_state=_medal_state,
+    label="MEDAL-CASE",
+    caption="Fix medal-case crash   (3 Bink opens used the wrong handle)",
 )
 
 
@@ -424,10 +442,25 @@ FIX_MULTICORE = PatchDefinition(
     sites=[dict(va=MC_OEP_VA, orig=MC_OEP_ORIG, hook_len=5)],
     build=_mc_build,
     verify_state=_mc_state,
+    label="MULTI-CORE",
+    caption="Fix multi-core crash   (pin to one core at startup)",
 )
 
 
 REGISTRY = {d.id: d for d in [WIDESCREEN, FIX_MEDAL, FIX_MULTICORE]}
+
+
+def ordered_fixes():
+    """The registry's definitions in CANONICAL_ORDER, as a list.
+
+    CANONICAL_ORDER also names 'fps', which is deliberately NOT a patch (the render
+    cap is vsync in srddraw.dll, so there is nothing in the exe to change); ids with
+    no definition are skipped rather than assumed. Front-ends iterate this, so a new
+    PatchDefinition shows up everywhere at once and in the right order.
+    """
+    seen = [REGISTRY[i] for i in CANONICAL_ORDER if i in REGISTRY]
+    rest = [d for i, d in REGISTRY.items() if i not in CANONICAL_ORDER]
+    return seen + rest
 
 
 # =================================================================== engine core
