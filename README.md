@@ -1,6 +1,10 @@
 # Starlancer Open-Source Project
 
 [![CI](https://github.com/LordBlacksun/Starlancer-OSS/actions/workflows/ci.yml/badge.svg)](https://github.com/LordBlacksun/Starlancer-OSS/actions/workflows/ci.yml)
+[![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![No game data](https://img.shields.io/badge/game%20data-none%20(guarded)-brightgreen.svg)](tools/check_no_game_data.py)
+[![Static only](https://img.shields.io/badge/analysis-static%20only-informational.svg)](AI-TRANSPARENCY.md)
 
 Open-source reverse-engineering tools and documentation for **Starlancer**
 (Digital Anvil / Microsoft, 2000) — the space-combat flight sim.
