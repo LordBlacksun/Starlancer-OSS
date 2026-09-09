@@ -24,6 +24,8 @@ CHECKS = [
      [sys.executable, os.path.join("tools", "hog_pack.py"), "--selftest"]),
     ("sl_patch engine self-test",
      [sys.executable, os.path.join("tests", "sl_patch_selftest.py")]),
+    ("shp model parser self-test",
+     [sys.executable, os.path.join("tools", "shp_parse.py"), "--selftest"]),
     ("game-data guard (tracked tree)",
      [sys.executable, os.path.join("tools", "check_no_game_data.py")]),
 ]

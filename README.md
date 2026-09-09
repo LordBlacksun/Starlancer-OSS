@@ -37,6 +37,7 @@ and the release ships a `SHA256SUMS.txt` to verify your download.*
 |------|-------------|
 | [`docs/hog-format.md`](docs/hog-format.md) | `.HOG` archive format (Electronic Arts `BIGF`). |
 | [`docs/stats-format.md`](docs/stats-format.md) | `SHIP/GUN/MISSILESTATS.BIN` — 352-byte stat record layout. |
+| [`docs/shp-format.md`](docs/shp-format.md) | `.SHP` 3D-model format: RefPack container, tagged-chunk stream, parts / LODs / attachments / animations — independently derived, every field evidence-tagged. |
 
 **Missions & campaign**
 | Path | Description |
@@ -74,6 +75,7 @@ launch the game.
 | [`tools/hog_extract.py`](tools/hog_extract.py) | List / extract `.HOG` archives. |
 | [`tools/hog_pack.py`](tools/hog_pack.py) | Write / repack `.HOG` (BIGF) archives (byte-identical round-trip). |
 | [`tools/dte_parse.py`](tools/dte_parse.py) | `.DTE` mission **decoder** (RefPack + 27-section directory + script disasm) + reference tables. |
+| [`tools/shp_parse.py`](tools/shp_parse.py) | `.SHP` model **decoder** — chunk walk, typed dumps, structure tree, Wavefront OBJ export, validation sweep. |
 
 **Editors**
 | Path | Description |
@@ -132,8 +134,10 @@ triggers, and the script bytecode) plus the full scripting opcode/command refere
 community fixes with our RE, ships with a boot-video-skip tool, **native Hor+ widescreen**, and the
 RE'd **crash fixes** (medal-case, multi-core) — all via the [`tools/sl_patch.py`](tools/sl_patch.py)
 declarative patch-pack (per-fix verify / revert), and all wrapped together with the editors and the
-controller shim in the **[Starlancer Studio](#starlancer-studio--the-all-in-one-app)** app. Planned:
-a full `.SHP` ship-model spec. The 100-FPS cap is settled rather than open — static RE showed it is
+controller shim in the **[Starlancer Studio](#starlancer-studio--the-all-in-one-app)** app. The
+`.SHP` ship-model format is now specified in [`docs/shp-format.md`](docs/shp-format.md) (independent
+static RE; decoder + OBJ export in [`tools/shp_parse.py`](tools/shp_parse.py)); its remaining gaps
+are listed in that document's §9. The 100-FPS cap is settled rather than open — static RE showed it is
 the simulation timebase plus renderer vsync, not an exe limiter, so the uncap is a wrapper setting and
 this project ships no FPS patch by design.
 
@@ -169,11 +173,14 @@ tools and research we build on, with thanks:
 - **Dustin** — *SLEdit*, whose data-layer Coalition ship-switch mechanic is reimplemented by
   [`slswitch.py`](tools/slswitch.py).
 - **Mario "HCl" Brito** — *SL Tool*, *LWO2SL*, and the *MilkShape* `.SHP` import/export plugins — the
-  prior art for the `.SHP` 3D-model format (RE in progress).
+  prior art for the `.SHP` 3D-model format. Our own spec ([`docs/shp-format.md`](docs/shp-format.md))
+  was derived independently from the executable and the game files, without reference to those tools.
 - **Raidersoft** (*StarLancEdit*) and **Twister / Twisted Media** (*Saved Game Editor*) — the
   `MYGAME*.IFF` save and `profile.bin` formats (RE planned).
-- **esc0rtd3w** — the *blank-intro-videos* project, whose zero-frame `blank.bik` the Studio build
-  bundles as its boot-video placeholder. <https://github.com/esc0rtd3w/blank-intro-videos/>
+- **esc0rtd3w** — the *blank-intro-videos* project, whose black `blank.bik` the Studio build bundles
+  as its boot-video placeholder when a copy is placed in `tools/assets/` (the clip is not part of this
+  repo; without it the Studio uses its own generated zero-frame clip from
+  [`blank_boot_videos.py`](tools/blank_boot_videos.py)). <https://github.com/esc0rtd3w/blank-intro-videos/>
 - The **game content reference** ([`docs/game-reference/`](docs/game-reference/)) is compiled from the
   community **[Starlancer Wiki on Fandom](https://starlancer.fandom.com/)** under
   **[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/)** (those pages are offered under

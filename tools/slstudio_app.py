@@ -33,11 +33,31 @@ import threading
 import queue
 import re
 
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
-import tkinter.font as tkfont
+try:
+    import tkinter as tk
+    from tkinter import ttk, filedialog, messagebox
+    import tkinter.font as tkfont
+except ImportError as _e:                 # e.g. a Linux Python without the python3-tk package
+    sys.exit("Starlancer Studio needs Tk (tkinter), which this Python lacks: %s\n"
+             "  Windows/macOS: reinstall Python with the tcl/tk option ticked;\n"
+             "  Debian/Ubuntu: sudo apt install python3-tk   Fedora: sudo dnf install python3-tkinter\n"
+             "The command-line tools in this folder need nothing extra." % _e)
 
-import customtkinter as ctk
+try:
+    import customtkinter as ctk
+except ImportError:
+    _MISSING = ("Starlancer Studio needs the 'customtkinter' package - its only third-party runtime\n"
+                "dependency (see requirements-optional.txt). Install it with:\n\n"
+                "    python -m pip install customtkinter\n\n"
+                "The command-line tools need nothing extra, and the legacy GUI tools/slstudio.py\n"
+                "runs on the standard library alone.")
+    try:                                  # also visible when launched without a console (pythonw)
+        _root = tk.Tk()
+        _root.withdraw()
+        messagebox.showerror("Starlancer Studio - missing dependency", _MISSING)
+    except Exception:
+        pass
+    sys.exit(_MISSING)
 
 ctk.set_appearance_mode("dark")          # set before any window is created
 ctk.set_default_color_theme("dark-blue")
@@ -1763,11 +1783,16 @@ class ControllerFrame(Section):
 
 # ======================================================== BOOT VIDEOS section ===
 def _find_blank_bik():
-    """Locate the real black blank.bik (esc0rtd3w's; bundled in the exe, or the repo's modern-setup)."""
+    """Locate a real black blank.bik (esc0rtd3w's blank-intro-videos clip) IF the user supplied
+    one: bundled inside the frozen exe (sys._MEIPASS/assets), or dropped into tools/assets/ for
+    source runs. The clip is third-party and never ships in this repo (*.bik is git-ignored), so on
+    a fresh clone this returns None and _blank_bytes() falls back to the project's own generated
+    zero-frame clip (blank_boot_videos.make_blank_bik, version-matched to the clip being replaced)
+    -- the RE-backed method described in docs/modern-fixes.md s1. Either way the Boot Videos log
+    says which one is in use."""
     here = os.path.dirname(os.path.abspath(__file__))
     for p in (resource_path(os.path.join("assets", "blank.bik")),
-              os.path.join(here, "assets", "blank.bik"),
-              os.path.normpath(os.path.join(here, "..", "modern-setup", "blank.bik"))):
+              os.path.join(here, "assets", "blank.bik")):
         if os.path.exists(p):
             return p
     return None
@@ -1797,7 +1822,8 @@ _LOOSE_ALL = {n.lower() for n in LOOSE_LOGOS + LOOSE_SPLASH}
 class BootVideoFrame(Section):
     TITLE = "BOOT VIDEOS"
     SUB = ("Skip the startup branding logos. On a retail install the logos are LOOSE .bik files in "
-           "the game folder — blanked in place with the real black blank.bik (.orig backups kept).")
+           "the game folder — blanked in place with a black blank.bik if one is bundled, else with a "
+           "generated zero-frame clip (.orig backups kept either way).")
     GLYPH = "▷"
 
     def build(self):
@@ -2576,15 +2602,9 @@ class DeployFrame(Section):
 
     @staticmethod
     def _guess_dropins():
-        here = os.path.dirname(os.path.abspath(__file__))
-        for rel in ("..", "..\\modern-setup", "..\\Starlancer-Ready", "..\\modern-setup\\third-party"):
-            p = os.path.normpath(os.path.join(here, rel, "modern-setup"))
-            if os.path.isdir(p):
-                return p
-        for rel in ("..\\modern-setup", "..\\Starlancer-Ready"):
-            p = os.path.normpath(os.path.join(here, rel))
-            if os.path.isdir(p):
-                return p
+        """Initial drop-ins folder when no preference is saved. Third-party drop-ins (dgVoodoo2,
+        mss32 ...) are never part of this repo, so there is no repo-relative place to guess:
+        start empty and let the user browse; the choice is remembered in preferences."""
         return ""
 
     def _pick(self, var, share=False, drop=False):

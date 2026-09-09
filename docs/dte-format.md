@@ -41,6 +41,12 @@ big-endian uncompressed size (the standard EA codec, unsurprising since the HOG 
 archive). `dte_parse.py` ships a clean-room RefPack decoder; all 44 files decompress with the
 produced length matching the header size exactly.
 
+**Loose missions are _not_ compressed.** [verified] A `missions\*.dte` sitting on disk is a
+**raw, already-expanded image**: the loose branch reads it straight and never decompresses. Both
+loose files in a retail install (`mission18.dte`, `mission25.dte`, 850,919 bytes each) begin with
+the 27-entry directory, not the `10 FB` signature. Only the HOG-stored copies are RefPack. A write
+path that targets loose files therefore needs **no RefPack encoder** — see §11.
+
 The loader is **`FUN_00451D90`**. It obtains the bytes via `FUN_0045A300` — a loose
 `missions\%s.dte` if present (`FUN_004AD6E0` = `GetFileAttributes`), else the HOG resource
 (`FUN_004C5BD0` → `FUN_004C5BE0`, a straight read, *no* extra transform; a `0x1A` EOF byte is
@@ -261,7 +267,12 @@ is a loose game file, not part of our extracted data, so this is code-proven rat
 * Record layouts of the still-undecoded **populated** sections — 9 (16/44), 12 (34/44), 23 (40/44),
   24 (36/44) — plus deep field decode of sec 15 (nav geometry) and sec 16 (sub-object/model table).
 * Pilot → faction (IFF) binding; exact `0x28`/`0x23` compare semantics.
-* RefPack **encoder** + HOG repack for a full read-modify-write mission editor (the decode side is done).
+* RefPack **encoder** + HOG repack — needed only to write missions back *into the archive*. A
+  loose-file editor needs neither: loose `missions\*.dte` are raw images (§2) and the game prefers
+  a loose file over the HOG copy. The decode side is done.
+* Whether the RefPack decode sits in the HOG read itself or one layer above it — §2 describes the
+  read as applying no transform, which needs re-checking against the archive layer. Does not affect
+  the decoded output either way.
 
 ## Related
 [`dte-scripting-reference.md`](dte-scripting-reference.md) · [[stats-format.md]] ·

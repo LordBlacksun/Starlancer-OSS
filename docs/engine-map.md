@@ -267,7 +267,8 @@ DirectDraw/Direct3D, DirectInput and DirectPlay are also resolved dynamically vi
 | `.HOG` (EA BIGF) | asset archive | spec'd — `docs/hog-format.md` |
 | `SHIP/GUN/MISSILESTATS.BIN` | 352-byte stat records | spec'd — `docs/stats-format.md` |
 | `.DTE` | missions/triggers (see §9 `TT_*`) | partial — `docs/dte-format.md` |
-| `.SHP` / `.SPR` | 3D models / sprites | tooled (community), needs spec |
+| `.SHP` | 3D models | spec'd — `docs/shp-format.md` (loader `FUN_004A44D0`, srofiles.cpp) |
+| `.SPR` | sprites / texture packs | undocumented (paired with each `.shp` in the ship table) |
 | `dmodes.bin` | render-device/resolution list | newly identified (§3) — needed for widescreen |
 | `*.fm8` | pilot files | identified (§12) |
 | `GAME%02d.IFF` | saved games | identified (§12), community editors exist |

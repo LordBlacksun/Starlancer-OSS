@@ -67,7 +67,7 @@ The historical toolchain is archived at [Starlancer-mod-tools](https://github.co
 
 ## Open opportunities for original patches
 1. **100-FPS uncap** — a wrapper-layer fix (the cap is renderer vsync, not an EXE limiter; see [`modern-fixes.md`](modern-fixes.md) §4). The highest-value remaining item.
-2. **`.SHP` ship-model format** — only partially decoded; a full spec would unlock custom-ship mods.
+2. **`.SHP` ship-model format** — now specified in [`shp-format.md`](shp-format.md) (container, chunk stream, every record type, evidence-tagged) with a decoder / OBJ exporter (`tools/shp_parse.py`). What is still open for custom-ship work is listed in its §9 — chiefly the exporter-side fields the engine never reads, five attachment types without a located consumer, and a RefPack *encoder* + `.SPR` texture packs for a write path.
 3. **Native widescreen menus + flight-HUD reposition** — the flight view is already Hor+ (done); the 2D front-end staying 4:3 is the v2 frontier.
 
 *(Already done since this was first written: native Hor+ widescreen, the medal-case + multi-core crash fixes, the `.HOG` packer, the `.DTE` decoder, and a consolidated fix pack — **[Starlancer Studio](https://github.com/LordBlacksun/Starlancer-OSS/releases/tag/studio-v1.1)** — which bundles the EXE fixes, controller shim, boot-skip, and a Ready-to-Play wizard.)*
