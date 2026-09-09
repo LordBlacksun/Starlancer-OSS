@@ -39,10 +39,13 @@ try:
     from tkinter import ttk, filedialog, messagebox
     import tkinter.font as tkfont
 except ImportError as _e:                 # e.g. a Linux Python without the python3-tk package
-    sys.exit("Starlancer Studio needs Tk (tkinter), which this Python lacks: %s\n"
-             "  Windows/macOS: reinstall Python with the tcl/tk option ticked;\n"
-             "  Debian/Ubuntu: sudo apt install python3-tk   Fedora: sudo dnf install python3-tkinter\n"
-             "The command-line tools in this folder need nothing extra." % _e)
+    _NO_TK = ("Starlancer Studio needs Tk (tkinter), which this Python lacks: %s\n"
+              "  Windows/macOS: reinstall Python with the tcl/tk option ticked;\n"
+              "  Debian/Ubuntu: sudo apt install python3-tk   Fedora: sudo dnf install python3-tkinter\n"
+              "The command-line tools in this folder need nothing extra." % _e)
+    if __name__ == "__main__":
+        sys.exit(_NO_TK)
+    raise ImportError(_NO_TK)             # an import must never kill its importer
 
 try:
     import customtkinter as ctk
@@ -52,13 +55,20 @@ except ImportError:
                 "    python -m pip install customtkinter\n\n"
                 "The command-line tools need nothing extra, and the legacy GUI tools/slstudio.py\n"
                 "runs on the standard library alone.")
-    try:                                  # also visible when launched without a console (pythonw)
-        _root = tk.Tk()
-        _root.withdraw()
-        messagebox.showerror("Starlancer Studio - missing dependency", _MISSING)
-    except Exception:
-        pass
-    sys.exit(_MISSING)
+    # Only a DIRECT RUN gets the dialog. When this module is merely IMPORTED - by a
+    # test collector, a tooling sweep, or `python -c "import slstudio_app"` - a modal
+    # Tk window blocks the importing process until a human dismisses it, and sys.exit
+    # kills that process outright. Importers get a plain ImportError instead, which
+    # is why Studio's logic now lives in slstudio_core: that module has no such trap.
+    if __name__ == "__main__":
+        try:                              # also visible when launched without a console (pythonw)
+            _root = tk.Tk()
+            _root.withdraw()
+            messagebox.showerror("Starlancer Studio - missing dependency", _MISSING)
+        except Exception:
+            pass
+        sys.exit(_MISSING)
+    raise ImportError(_MISSING)
 
 ctk.set_appearance_mode("dark")          # set before any window is created
 ctk.set_default_color_theme("dark-blue")
@@ -95,7 +105,7 @@ TXT   = "#D7E3F2"   # primary text
 TXT_D = "#90A2B8"   # secondary text
 TXT_DD = "#566A80"  # tertiary / hints
 
-APP_VERSION = "v1.1"
+APP_VERSION = "v1.2"
 PALETTE = dict(BG0=BG0, BG1=BG1, BG2=BG2, BG3=BG3, LINE=LINE, LINE2=LINE2,
                CYAN=CYAN, AMBER=AMBER, RED=RED, GREEN=GREEN, TXT=TXT, TXT_D=TXT_D)
 
