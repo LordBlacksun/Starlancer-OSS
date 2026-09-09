@@ -31,8 +31,12 @@
 /extracted/
 
 # Build / scratch
-/build/
-/dist/
+# Unanchored on purpose: PyInstaller runs from tools/, so the artefacts land in
+# tools/build/ and tools/dist/. Root-anchored patterns missed those, leaving the
+# whole build tree merely untracked, one `git add -A` away from being published.
+# NOTE: /assets/ below stays root-anchored - tools/assets/app.ico IS tracked.
+build/
+dist/
 tools/*.spec
 __pycache__/
 *.pyc
