@@ -11,7 +11,7 @@ manifest, and per-fix verify/revert.
 
 This shim preserves the original ws_patch CLI and delegates to sl_patch, so old
 commands and scripts keep working. The patched-exe bytes are byte-identical to
-the previous ws_patch (verified by analysis/sl_patch_regression.py). Prefer:
+the previous ws_patch (verified by tests/sl_patch_selftest.py). Prefer:
 
     python sl_patch.py --widescreen 1920x1080 IN.exe OUT.exe
 
@@ -21,7 +21,7 @@ Legacy usage (still supported here):
     python ws_patch.py --revert PATCHED.exe OUT.exe
     python ws_patch.py --fov-table
 
-Static only: never executes the target. Run on a COPY of your own decrypted exe.
+Static only: never executes the target. Run on a COPY of your own unprotected exe image.
 """
 import sys, os, argparse, importlib.util
 

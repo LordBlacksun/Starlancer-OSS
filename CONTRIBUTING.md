@@ -31,8 +31,11 @@ not distribute the game, its assets, or any means of circumventing protection it
 
 ## Getting set up
 
-You need **Python 3.8+** — that's it. The tools are **standard-library only** (the GUI uses
-`tkinter`, which ships with Python); there is nothing to `pip install`.
+You need **Python 3.8+**. The command-line tools are **standard-library only**, so there is
+nothing to install to use them. Two things do carry optional dependencies: **Starlancer Studio**
+(`tools/slstudio_app.py`) needs `customtkinter`, and the icon tools and the frozen-exe build need
+`Pillow` and `PyInstaller` — see [`requirements-optional.txt`](requirements-optional.txt). The
+legacy `tools/slstudio.py` GUI uses `tkinter`, which ships with Python.
 
 ```sh
 git clone https://github.com/LordBlacksun/Starlancer-OSS.git
@@ -89,11 +92,6 @@ contribution was substantially AI-generated, please say so in the PR description
   `test`, `chore`.
 - For AI-assisted work, add a `Co-Authored-By:` trailer (see [AI-TRANSPARENCY.md](AI-TRANSPARENCY.md)).
 - Commit with a **verified email** so GitHub attributes the work to you.
-
-> **Maintainer note:** the project's own commits are authored with the GitHub *noreply* address
-> (`12064098+LordBlacksun@users.noreply.github.com`) because the account blocks pushes that would
-> expose a real email. That's a maintainer detail — as an outside contributor you simply use your own
-> verified GitHub email; it does not affect your PRs.
 
 ## Submitting
 

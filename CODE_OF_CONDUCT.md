@@ -20,8 +20,6 @@ If you experience or witness unacceptable behaviour, report it privately to the 
 repository, or by contacting the maintainer directly. Reports are handled discreetly and in good
 faith.
 
-<!-- Maintainer: you may add a dedicated contact email here if you prefer one over GitHub contact. -->
-
 ## Scope
 
 This applies within all project spaces (the repository, issues, pull requests, and wiki) and when

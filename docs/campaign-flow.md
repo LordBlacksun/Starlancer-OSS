@@ -3,7 +3,7 @@
 How the 24 single‑player campaign missions are ordered, numbered, and branched — recovered by
 **static RE of the executable** (the progression logic + tables) fused with our **`.DTE` decoder**
 (per‑mission content). Addresses are VA for ImageBase `0x400000`; lines reference
-`analysis/exports/LANCER_decrypted.exe.decompiled.c`. Claims are tagged **[verified]** (read in
+`LANCER_decrypted.exe.decompiled.c` (a local decompiler export, not redistributed). Claims are tagged **[verified]** (read in
 code/data) or **[inferred]**.
 
 > Method note: everything here is static — the exe is read/disassembled as data and the missions

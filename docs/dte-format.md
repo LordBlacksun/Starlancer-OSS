@@ -4,7 +4,7 @@ Authoritative spec for Starlancer's per-mission **data + script** files, fusing 
 independent reverse-engineering efforts:
 
 * **Static RE of the decrypted executable** (this project) — addresses are RVAs/VAs for
-  ImageBase `0x400000`, read from `analysis/exports/LANCER_decrypted.exe.decompiled.c`; Ghidra
+  ImageBase `0x400000`, read from `LANCER_decrypted.exe.decompiled.c` (a local decompiler export, not redistributed); Ghidra
   names `FUN_<addr>`. Source of struct layouts, the VM, the trigger enum, and per-command
   implementation addresses.
 * **Black-box RE by Captain Foster / "Starlancer ME"** — <https://starlancerme.blogspot.com/>,

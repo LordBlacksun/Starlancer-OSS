@@ -1,0 +1,21 @@
+# Optional dependencies. NONE of these are needed for the command-line tools,
+# which are standard-library only:
+#
+#   hog_extract.py  hog_pack.py  slstats.py  slswitch.py  sl_patch.py
+#   ws_patch.py  dte_parse.py  bin_diff.py  bin_explore.py  map_engine.py
+#   pe_inspect.py  blank_boot_videos.py  check_no_game_data.py
+#
+# Install only what you actually want:
+#
+#   Starlancer Studio, the unified GUI (tools/slstudio_app.py)
+customtkinter>=5.2
+#
+#   Icon tooling (tools/make_icon.py, tools/pe_icon.py) and the frozen-exe build
+Pillow>=9.0
+#
+#   Building the standalone Starlancer Studio executable (tools/build.bat)
+pyinstaller>=6.0
+darkdetect>=0.8
+#
+# The legacy GUI (tools/slstudio.py) needs nothing beyond tkinter, which ships
+# with CPython on Windows and is packaged as python3-tk on most Linux distros.

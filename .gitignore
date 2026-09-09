@@ -33,6 +33,7 @@
 # Build / scratch
 /build/
 /dist/
+tools/*.spec
 __pycache__/
 *.pyc
 *.pyo

@@ -5,7 +5,7 @@ This document is an honest, complete disclosure of how this project was built.
 ## Summary
 
 **Essentially all of the code and documentation in this repository was written by an AI
-assistant — Anthropic's Claude (the Opus model family, primarily via Claude Code) — working
+assistant — Anthropic's Claude (the Opus and Fable model families, primarily via Claude Code) — working
 under the direction and review of the repository owner, LordBlacksun.** This is, by design, an experiment in
 AI-assisted reverse engineering, published in that spirit. We state it plainly so users and
 contributors can calibrate trust accordingly.
@@ -35,6 +35,11 @@ This repository contains **only original analysis, specifications, and tooling**
 game source code, binaries, assets, disc images, or decrypted / derivative game data** — those are
 excluded by [`.gitignore`](.gitignore) and a [pre-commit guard](.githooks/pre-commit), and must
 never be committed (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+
+One exception is deliberate and worth naming: the mission-scripting reference and
+[`dte_parse.py`](tools/dte_parse.py) quote the developers' own **command names and parameter labels**
+as recovered from the executable, because a scripting interface cannot be documented without naming
+its identifiers. Those are functional interface names, not game code, story text, or content.
 
 ## Accuracy & limitations
 

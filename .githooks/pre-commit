@@ -23,8 +23,10 @@ if [ -f "$checker" ]; then
 fi
 
 # --- Fallback (no Python on PATH): inline guard, same rules as the checker. ---
-forbidden='\.(exe|dll|icd|hog|iso|cue|mds|mdf|bin|bik|tga|spr|shp|fat|mp3|wav|ogg|cab|zip|7z|rar|gpr|rep|idb|i64|fm8|iff|sav|dte)$'
-namehint='(lancer_decrypted|lancer\.exe|lancer\.icd|dmodes\.bin|shipstats|gunstats|missilestats|pilotstats|\.decompiled\.c)'
+echo "WARNING: Python not found - running the REDUCED name/size guard only."
+echo "         Content sniffing and the asset hash pin live in tools/check_no_game_data.py."
+forbidden='\.(exe|dll|icd|hog|iso|cue|mds|mdf|bin|bik|tga|spr|shp|fat|mp3|wav|ogg|cab|zip|7z|rar|gpr|rep|idb|i64|fm8|iff|sav|dte|frc|ccb|fnt|sro|pal)$'
+namehint='(lancer_decrypted|lancer\.exe|lancer\.icd|dmodes\.bin|shipstats|gunstats|missilestats|pilotstats|\.decompiled\.c|project-log|starlancer_repack)'
 maxbytes=5242880   # 5 MB
 fail=0
 

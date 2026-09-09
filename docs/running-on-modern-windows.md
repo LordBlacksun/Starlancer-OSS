@@ -21,7 +21,7 @@ data, stats, etc.).
   shim + blanked logos + your graphics/audio drop-ins) into an output folder, and its **Dashboard** applies
   the recommended fixes to an existing install in one click. The manual steps below are those same fixes by
   hand, for when you want the detail.
-- **Minimal "just boot it"** → (1) a DRM-free exe, (2) dgVoodoo2, (3) enable
+- **Minimal "just boot it"** → (1) SafeDiscShim, (2) dgVoodoo2, (3) enable
   DirectPlay. That's usually enough to reach the menu.
 - **Full "modern Starlancer"** → the above **+** `sl_patch.py` (widescreen + crash
   fixes) **+** the XInput shim **+** DSOAL audio **+** compatibility mode.
@@ -37,7 +37,7 @@ Everything goes in the folder that holds the runnable exe. Wrappers are all
 
 ```
 Starlancer\                       ← game root
-├─ Lancer.exe                     ← runnable (DRM-free) exe, PATCHED by sl_patch   [step 1–2]
+├─ Lancer.exe                     ← runnable, unprotected exe, PATCHED by sl_patch [step 1–2]
 ├─ Lancer.exe.slpatch.json        ← patch manifest sl_patch writes (harmless; lets you --verify/--revert)
 │
 │   ── graphics wrapper (pick ONE) ──                                              [step 3]
@@ -59,8 +59,8 @@ Starlancer\                       ← game root
 └─ (the rest of your install)
 ```
 
-You do **not** need the original SafeDisc `LANCER.EXE` + `LANCER.ICD` if you run the
-DRM-free `Lancer.exe` (step 1, Option A). Keep them around as backups.
+If your edition provides an unprotected `Lancer.exe`, the SafeDisc `LANCER.EXE` +
+`LANCER.ICD` pair is not needed at run time. Keep it as a backup either way.
 
 ---
 
@@ -71,21 +71,21 @@ originals pristine; do all the work on the copy.
 
 ---
 
-## Step 1 — Get a runnable (DRM-free) exe  · **required**
+## Step 1 — Make the game start  · **required**
 
 The stock `LANCER.EXE` is a **SafeDisc 1.40.004** loader that needs `secdrv.sys`,
-which Microsoft disabled/removed on Win10/11 — so it won't start. Since you own the
-game, get past it one of these ways:
+which Microsoft disabled and then removed on Win10/11, so it will not start.
 
-- **Option A — No-CD / decrypted exe (simplest).** Use the decrypted `Lancer.exe`
-  of your copy and put it in the game root. (We validated this image is a faithful
-  decrypt of your `LANCER.ICD`.) This is the exe you'll patch in step 2.
-- **Option B — SafeDiscShim** (keep the original loader): a userland `secdrv` shim,
-  no kernel driver. <https://github.com/RibShark/SafeDiscShim>. You'd then patch
-  `LANCER.ICD`'s decrypted form / run the loader pair with the shim.
+**Use [SafeDiscShim](https://github.com/RibShark/SafeDiscShim)** (RibShark). It
+reimplements the missing `secdrv` service in userland, needs no kernel driver, and
+leaves the original loader and every game file exactly as shipped. This is the
+route this guide supports.
 
-> Legal: defeating the DRM on a copy **you own**, for your own use, is the point of
-> a No-CD exe. Don't redistribute the exe.
+> **Scope limit.** The `sl_patch.py` fixes in step 2 operate on an *unprotected*
+> executable image (1,151,021 bytes) and cannot be applied to a SafeDisc-protected
+> copy as it ships. This project provides no means of removing that protection, and
+> takes no position on how such an image might be obtained. If your edition ships
+> without SafeDisc, step 2 applies directly.
 
 ---
 
@@ -196,7 +196,7 @@ the `[Device]` section, and retry (a common wrapper-handshake fix).
 
 | Symptom | Try |
 |---|---|
-| Won't start / instantly exits | DRM (step 1) → DRM-free exe or SafeDiscShim |
+| Won't start / instantly exits | DRM (step 1): SafeDiscShim |
 | "Could not CoInitialise" | Enable DirectPlay (step 4); DirectX runtime |
 | Black screen / garbled 3D / crash at high res | Graphics wrapper (step 3); clear `[Device]` in `starlancer.ini` |
 | Stretched (not true widescreen) | Use `sl_patch --widescreen` (step 2), not the INI stretch |

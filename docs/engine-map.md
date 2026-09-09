@@ -305,7 +305,7 @@ All static EXE fixes now ship from one tool, **`tools/sl_patch.py`** (declarativ
 
 Functions were auto-clustered by `tools/map_engine.py` (harvests each function's referenced string
 literals + distinctive imported APIs from the Ghidra decompiled-C dump), then reviewed by hand. The
-underlying decompilation is `analysis/exports/LANCER_decrypted.exe.*`. Addresses are specific to the
+underlying decompilation is `LANCER_decrypted.exe.*` (a local decompiler export, not redistributed). Addresses are specific to the
 analyzed build; only ~12% of functions reference strings, so the ~1,940 untagged functions (math,
 vector/matrix, container, and leaf helpers) are not individually listed here. Purposes are inferred
 from diagnostics and should be verified against the decompilation before relying on them for patches.

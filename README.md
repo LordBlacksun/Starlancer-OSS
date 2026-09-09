@@ -62,7 +62,9 @@ See also the [project wiki](https://github.com/LordBlacksun/Starlancer-OSS/wiki)
 
 ## Tools
 
-Dependency-free Python 3 (plus one PowerShell + Ghidra-script pair). The tools operate on
+Python 3 (plus one PowerShell + Ghidra-script pair). The command-line tools are standard-library
+only; Starlancer Studio and the icon/build tooling have optional dependencies listed in
+[`requirements-optional.txt`](requirements-optional.txt). The tools operate on
 files from your own copy of the game; none contain or redistribute game data, and none ever
 launch the game.
 
@@ -130,9 +132,10 @@ triggers, and the script bytecode) plus the full scripting opcode/command refere
 community fixes with our RE, ships with a boot-video-skip tool, **native Hor+ widescreen**, and the
 RE'd **crash fixes** (medal-case, multi-core) — all via the [`tools/sl_patch.py`](tools/sl_patch.py)
 declarative patch-pack (per-fix verify / revert), and all wrapped together with the editors and the
-controller shim in the **[Starlancer Studio](#starlancer-studio--the-all-in-one-app)** app. In progress:
-the `.SHP` ship-model format; the main remaining modern-systems target is the 100-FPS uncap (a vsync /
-wrapper matter, not an exe patch).
+controller shim in the **[Starlancer Studio](#starlancer-studio--the-all-in-one-app)** app. Planned:
+a full `.SHP` ship-model spec. The 100-FPS cap is settled rather than open — static RE showed it is
+the simulation timebase plus renderer vsync, not an exe limiter, so the uncap is a wrapper setting and
+this project ships no FPS patch by design.
 
 ## Contributing
 
@@ -169,6 +172,8 @@ tools and research we build on, with thanks:
   prior art for the `.SHP` 3D-model format (RE in progress).
 - **Raidersoft** (*StarLancEdit*) and **Twister / Twisted Media** (*Saved Game Editor*) — the
   `MYGAME*.IFF` save and `profile.bin` formats (RE planned).
+- **esc0rtd3w** — the *blank-intro-videos* project, whose zero-frame `blank.bik` the Studio build
+  bundles as its boot-video placeholder. <https://github.com/esc0rtd3w/blank-intro-videos/>
 - The **game content reference** ([`docs/game-reference/`](docs/game-reference/)) is compiled from the
   community **[Starlancer Wiki on Fandom](https://starlancer.fandom.com/)** under
   **[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/)** (those pages are offered under
@@ -185,3 +190,7 @@ Copyright (C) 2026 LordBlacksun.
 Free software under the **GNU General Public License v3.0 only** — see [LICENSE](LICENSE). You may
 use, modify, and redistribute it under those terms; derivative works must also be released under
 the GPL, so improvements come back to the community.
+
+One documented exception: the game-content pages under [`docs/game-reference/`](docs/game-reference/)
+are compiled from the community Starlancer Wiki and are offered under **CC BY-SA 3.0**, the same terms
+as their source. Everything else in this repository is GPL-3.0-only.

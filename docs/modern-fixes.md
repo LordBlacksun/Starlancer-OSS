@@ -89,7 +89,7 @@ HUD/menus don't adapt; values above ~`1280×1024` also tend to crash. Our patch 
 resolution render with a correct **Hor+** field of view instead.
 
 ### How to apply (`tools/sl_patch.py`)
-Patch a **local copy of your own** decrypted/No-CD exe (the tool never launches it; in-game testing
+Patch a **local copy of your own** unprotected exe image (the tool never launches it; in-game testing
 is yours):
 
 ```sh
@@ -214,9 +214,8 @@ the crashes) is the community's.
   on open** (the bad lid-up handle is `_BinkWait`'d immediately), while early-campaign medals merely
   glitch on close (a just-freed handle that Win98's heap happens to tolerate). **`sl_patch.py
   --fix-medal`** restores all three stores to `DAT_0051d7e8` (3 × 4-byte in-place operand fixes, no
-  cave; matches the correct early lid-up open; disassembly-verified; revertable). *(Pending a
-  byte-for-byte cross-check against the community Crash Fix — its file is download-gated; see
-  `analysis/crashfix/`.)*
+  cave; matches the correct early lid-up open; disassembly-verified; revertable). *(A byte-for-byte
+  cross-check against the community Crash Fix is still pending; that file is download-gated.)*
 - **General** — Win98/WinXP compatibility mode helps on some systems; disabling in-game *3D Sound
   Effects* avoids an EAX-path crash on others (not yet RE'd).
 - **"Could not CoInitialise"** at start — ensure DirectX 7 runtime + DirectPlay (§8) are present;
@@ -226,17 +225,19 @@ the crashes) is the community's.
 
 ---
 
-## 7. SafeDisc / DRM / No-CD  · EXE / WRAP
+## 7. SafeDisc / DRM compatibility  · EXE / WRAP
 
-The MS-2000 release is **SafeDisc v1.40.004** (relies on `secdrv.sys`, disabled/removed on
-Win10/11 — won't launch). Owner-legal remedies:
+The MS-2000 release is **SafeDisc v1.40.004** (relies on `secdrv.sys`, disabled and then removed on
+Win10/11, so it will not launch).
 
-- **SafeDiscShim** (RibShark) — userland `secdrv` shim, no kernel driver. <https://github.com/RibShark/SafeDiscShim>
-- **Scope limit** — `LANCER.EXE` is the loader and
-  `LANCER.ICD` the encrypted game. *(We use a validated unprotected image for **analysis only**
-  — never launched, never shipped; patches target the owned install.)*
-- **Ubisoft re-release** — if yours is the Ubisoft repack, extract its bundled exe with
-  `innoextract` (read-only). Confirm version/DRM from the installed files rather than assuming v1.
+- **SafeDiscShim** (RibShark) — userland `secdrv` shim, no kernel driver, leaves every game file as
+  shipped. <https://github.com/RibShark/SafeDiscShim> This is the route this project supports.
+- **Scope limit** — `LANCER.EXE` is the loader and `LANCER.ICD` the protected payload. The EXE fixes
+  documented here apply only to an *unprotected* executable image (1,151,021 bytes). This project
+  provides no means of removing SafeDisc, and takes no position on how such an image is obtained.
+- **Ubisoft re-release** — if yours is the Ubisoft edition, its bundled exe can be extracted with
+  `innoextract` (read-only). Confirm version and protection from the installed files rather than
+  assuming v1.
 
 **Layer:** EXE / WRAP. **Source:** community + our exe fingerprinting (`modding-scene.md §3`).
 

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 LordBlacksun
+# SPDX-License-Identifier: GPL-3.0-only
 """bin_diff.py - diff two equal-length Starlancer binaries.
 
 Two modes:

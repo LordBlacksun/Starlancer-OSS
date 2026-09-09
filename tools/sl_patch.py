@@ -12,8 +12,8 @@ NEVER executes the target - it reads and writes a *local copy* as data only.
 Fixes (toggle with the flags below):
   widescreen WxH   native Hor+ widescreen for the in-flight 3D view (the v1 patch,
                    absorbed verbatim from ws_patch.py - byte-identical output).
-  fix-medal        fix the late-campaign medal-case crash. [Phase C - TBD by RE]
-  fix-multicore    stop the multi-core crash (self-affinity). [Phase C - TBD by RE]
+  fix-medal        fix the medal-case (bunk) close crash - 3 _BinkOpen handle stores.
+  fix-multicore    stop the multi-core crash - OEP self-affinity cave (a pin, not a cure).
 
   --fps N          NOT an EXE patch. Static RE showed the ~100 FPS cap is the
                    game's 100 Hz *simulation* timebase (raising it speeds up the
@@ -32,7 +32,7 @@ DESIGN
 
 SAFETY / PROVENANCE
   * Static only: never launches the exe. Run on a COPY of your own legally-owned,
-    decrypted/No-CD exe. We ship no game code or binaries; the patched exe is
+    unprotected exe image. We ship no game code or binaries; the patched exe is
     yours and stays local.
   * Addresses target the analyzed build (ImageBase 0x00400000, 1,151,021 bytes,
     OEP 0x004D1210). The tool refuses to patch if fingerprints don't match.
@@ -41,8 +41,8 @@ SAFETY / PROVENANCE
 
 Dependency-free (standard library only). Usage:
     python sl_patch.py --widescreen 1920x1080 IN.exe OUT.exe
-    python sl_patch.py --widescreen 1920x1080 --fps 144 --fix-crashes IN.exe OUT.exe
-    python sl_patch.py --all --widescreen 1920x1080 --fps 144 IN.exe OUT.exe
+    python sl_patch.py --widescreen 1920x1080 --fix-crashes IN.exe OUT.exe
+    python sl_patch.py --all --widescreen 1920x1080 IN.exe OUT.exe
     python sl_patch.py --verify PATCHED.exe
     python sl_patch.py --revert PATCHED.exe OUT.exe          # revert all fixes
     python sl_patch.py --revert-only fps PATCHED.exe OUT.exe # revert one fix
@@ -248,8 +248,8 @@ WIDESCREEN = PatchDefinition(
 
 
 # --------------------------------------------------------------------------------
-# FIX 2/3: fix-medal / fix-multicore - registered in Phase C once the RE has
-# pinned exact sites and fingerprints. The engine below is already fix-agnostic.
+# FIX 2/3: fix-medal / fix-multicore - both registered below; the RE pinned their
+# sites and fingerprints. The engine stays fix-agnostic so more can be appended.
 #
 # FPS NOTE (no EXE patch - by design, backed by static RE; see docs/modern-fixes.md
 # section 4 and docs/engine-map.md "Timer subsystem"):
@@ -705,9 +705,9 @@ def main(argv):
                     help="explain the frame-cap (no EXE patch exists - it is a vsync/"
                          "srddraw matter; static RE write-up + wrapper recipe)")
     ap.add_argument("--fix-medal", action="store_true",
-                    help="fix the late-campaign medal-case crash [Phase C]")
+                    help="fix the medal-case (bunk) close crash")
     ap.add_argument("--fix-multicore", action="store_true",
-                    help="fix the multi-core crash (self-affinity) [Phase C]")
+                    help="stop the multi-core crash (OEP self-affinity pin)")
     ap.add_argument("--fix-crashes", action="store_true",
                     help="shorthand for --fix-medal --fix-multicore")
     ap.add_argument("--all", action="store_true",
@@ -748,11 +748,11 @@ def main(argv):
     want_mc = a.fix_multicore or a.fix_crashes or a.all
     if want_medal:
         if "fix-medal" not in REGISTRY:
-            ap.error("--fix-medal is not yet available in this build (Phase C pending).")
+            ap.error("--fix-medal is not registered in this build.")
         selections.append(("fix-medal", {}))
     if want_mc:
         if "fix-multicore" not in REGISTRY:
-            ap.error("--fix-multicore is not yet available in this build (Phase C pending).")
+            ap.error("--fix-multicore is not registered in this build.")
         selections.append(("fix-multicore", {}))
 
     if not selections:

@@ -24,5 +24,3 @@ vulnerability") if it's available, or contact the maintainer
 **[@LordBlacksun](https://github.com/LordBlacksun)** privately. Please **don't** open a public issue
 for an unpatched guard bypass, and **never attach game data** to a report. We'll acknowledge and work
 a fix as quickly as we reasonably can.
-
-<!-- Maintainer: you may add a dedicated security contact email here. -->
