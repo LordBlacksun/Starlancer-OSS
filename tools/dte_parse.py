@@ -350,7 +350,7 @@ def refpack_decompress(data):
             roff = ((ctrl & 0x10) << 12) + (a << 8) + b + 1
             for _ in range(ncopy):
                 out.append(out[-roff])
-        elif ctrl < 0xFC:                       # literal run (4..124, multiple of 4)
+        elif ctrl < 0xFC:                       # literal run (4..112, multiple of 4)
             nproc = ((ctrl & 0x1F) << 2) + 4
             out += data[i:i + nproc]; i += nproc
         else:                                   # 0xFC..0xFF: final 0..3 literals, end

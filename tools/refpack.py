@@ -27,7 +27,7 @@ already-decoded output:
     ctrl < 0x80   2-byte  literals = ctrl & 3          run = ((ctrl>>2) & 7) + 3
     ctrl < 0xC0   3-byte  literals = (a>>6) & 3        run = (ctrl & 0x3F) + 4
     ctrl < 0xE0   4-byte  literals = ctrl & 3          run = ((ctrl & 0x0C) << 6) + c + 5
-    ctrl < 0xFC   literal run only, ((ctrl & 0x1F) << 2) + 4 bytes (4..124)
+    ctrl < 0xFC   literal run only, ((ctrl & 0x1F) << 2) + 4 bytes (4..112, step 4)
     ctrl >= 0xFC  final 0-3 literals, then end of stream
 
 Note the terminator: a well-formed stream ends with a `0xFC..0xFF` opcode that
@@ -99,7 +99,7 @@ def decompress_ex(data: bytes):
             nliteral = ctrl & 0x03
             ncopy = ((ctrl & 0x0C) << 6) + c + 5
             roff = ((ctrl & 0x10) << 12) + (a << 8) + b + 1
-        elif ctrl < 0xFC:                        # literal run, 4..124 bytes
+        elif ctrl < 0xFC:                        # literal run, 4..112 bytes (step 4)
             nliteral = ((ctrl & 0x1F) << 2) + 4
             out += data[i:i + nliteral]; i += nliteral
             continue
