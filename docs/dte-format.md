@@ -49,10 +49,20 @@ path that targets loose files therefore needs **no RefPack encoder** — see §1
 
 The loader is **`FUN_00451D90`**. It obtains the bytes via `FUN_0045A300` — a loose
 `missions\%s.dte` if present (`FUN_004AD6E0` = `GetFileAttributes`), else the HOG resource
-(`FUN_004C5BD0` → `FUN_004C5BE0`, a straight read, *no* extra transform; a `0x1A` EOF byte is
-appended to loose reads by `FUN_0045A3E0`; read failure → *"** IT'S A DISASTER! ** Emergency
-file saved to 'fatal.dte'"*). The RefPack stream **expands into a fixed-layout image** (the
-`≤ 0xFA000` buffer is sized for it). The loader then walks a **27-entry, 8-byte directory at
+(a `0x1A` EOF byte is appended to loose reads by `FUN_0045A3E0`; read failure → *"** IT'S A
+DISASTER! ** Emergency file saved to 'fatal.dte'"*). The RefPack stream **expands into a
+fixed-layout image** (the `≤ 0xFA000` buffer is sized for it).
+
+> **Where the decompression happens [RESOLVED 2026-09-10]** — this closes the last open item in
+> §11, and corrects the chain given here previously as `FUN_004C5BD0` → `FUN_004C5BE0`.
+> `FUN_004C5BD0` is a one-line forwarder to **`FUN_004C7F60`** (`HOG_bigread2`, `bigfile.cpp`),
+> *not* to `FUN_004C5BE0` — which is an unrelated neighbour, the verbatim loose-file reader in
+> `hog_file.cpp`. The gate sits in that wrapper, **one layer above** the decompressor: it reads
+> the member's first two bytes, seeks back, and enters the decompressing reader only when they
+> equal `0x10FB`, otherwise allocating and reading the member verbatim. So the decompressor
+> itself is never the thing that decides, and **an uncompressed member is legal anywhere this
+> reader is used**. See [`hog-format.md`](hog-format.md) and
+> [`external-re-credits.md`](external-re-credits.md). The loader then walks a **27-entry, 8-byte directory at
 offset 0** of that image via 27 calls to **`FUN_00452A20`**, each reading `{ u16 count, byte
 relocation-flags @ bits 24-27, u32 offset }`, advancing the cursor 8 bytes, and fixing `offset`
 to a live pointer (`offset + image base`). `offset == 0xFFFF` marks an unused section.
@@ -106,6 +116,56 @@ to a live pointer (`offset + image base`). `offset == 0xFFFF` marks an unused se
 ---
 
 ## 3. Data records
+
+### 3.0 Fixed-capacity layout — what an editor may change  [VERIFIED 2026-09-10]
+
+The "fixed-layout image" of §2 is stronger than it sounds, and it is the fact an editor is built
+on: **sections never move, and records are never packed.** Each section sits at a fixed offset
+with a fixed reserved capacity; the directory's `count` says how many records are *live*, and the
+remaining capacity is slack. Measured across all 44 missions:
+
+* There are exactly **6 layout templates**, and each maps **one-to-one to an image size**
+  (850,919 B × 36 missions, then 718,831 × 4, and 685,040 / 553,976 / 496,632 / 488,568 × 1 each).
+  Within a template every section offset is identical across missions; only the counts differ.
+* **No section overlaps another** in any of the 44.
+* Roughly 64% of an image is reserved slack that no live record occupies.
+
+Capacities in the dominant 850,919-byte template, with the highest live count seen in any mission
+using it:
+
+| # | section | stride | offset | capacity | max records | most ever used |
+|--:|---|--:|--:|--:|--:|--:|
+| 0 | `string_pool` | 1 | 1,024 | 65,535 | 65,535 | 39,108 |
+| 2 | `globals` | 12 | 197,623 | 3,072 | 256 | 77 |
+| 3 | `ships` | 76 | 200,695 | 38,912 | 512 | 372 |
+| 4 | `fg_triggers` | 20 | 239,607 | 5,120 | 256 | 61 |
+| 5 | `triggers` | 48 | 244,727 | 49,152 | 1,024 | 133 |
+| 6 | `script` | 1 | 293,879 | 65,536 | 65,536 | 8,020 |
+| 7 | `ship_trig_index` | 8 | 359,415 | 7,168 | 896 | 498 |
+| 8 | `launch_object` | 28 | 366,583 | 7,168 | 256 | 91 |
+| 10 | `script_yieldflags` | 1 | 377,847 | 65,532 | 65,532 | 16,040 |
+| 13 | `squad` | 12 | 444,919 | 9,216 | 768 | 296 |
+| 15 | `section15` | 16 | 454,647 | 8,192 | 512 | 13 |
+| 16 | `section16` | 68 | 462,839 | 17,408 | 256 | 24 |
+
+**The editing invariant.** Because nothing moves, an edit is a write into a record slot plus an
+update to that section's `count` word, and the image size never changes. Verified over all 44
+missions: parsing and re-serialising is **byte-identical 44/44**, and a single-field edit changes
+**only the intended bytes, 44/44**, with no size change in any case.
+
+Two consequences worth stating plainly:
+
+* The **still-undecoded sections do not block editing.** A section whose record layout we have not
+  worked out is preserved verbatim, byte for byte, because we never re-lay-out the image. They
+  block editing *those* sections, nothing else.
+* The `≤ 0xFA000` (1,024,000 B) loader buffer is never at risk from an edit, since the size is
+  invariant. It only constrains a hypothetical tool that rebuilt an image from scratch, which is
+  not how this format wants to be written.
+
+An editor must still refuse a `count` above the section's capacity, and refuse a record write
+beyond it — those are the two real bounds.
+
+### 3.1 Record layouts
 
 **Ship / flight-group** (stride `0x4C` = 76 B; `DAT_0052951C`, count `DAT_00529504`). Field map
 verified by decoding all 44 (`dte_parse.py decode --section ships`) plus the load-time mirror
@@ -266,13 +326,16 @@ is a loose game file, not part of our extracted data, so this is code-proven rat
 
 * Record layouts of the still-undecoded **populated** sections — 9 (16/44), 12 (34/44), 23 (40/44),
   24 (36/44) — plus deep field decode of sec 15 (nav geometry) and sec 16 (sub-object/model table).
+  *These no longer block a mission editor* (§3.0): unmoved sections round-trip verbatim, so they
+  gate editing their own contents and nothing else.
 * Pilot → faction (IFF) binding; exact `0x28`/`0x23` compare semantics.
 * RefPack **encoder** + HOG repack — needed only to write missions back *into the archive*. A
   loose-file editor needs neither: loose `missions\*.dte` are raw images (§2) and the game prefers
   a loose file over the HOG copy. The decode side is done.
-* Whether the RefPack decode sits in the HOG read itself or one layer above it — §2 describes the
-  read as applying no transform, which needs re-checking against the archive layer. Does not affect
-  the decoded output either way.
+* ~~Whether the RefPack decode sits in the HOG read itself or one layer above it.~~
+  **[CLOSED 2026-09-10]** One layer above, in the reader wrapper `FUN_004C7F60`, which tests the
+  member's first two bytes for `0x10FB` and reads verbatim otherwise. The chain in §2 previously
+  read `FUN_004C5BD0` → `FUN_004C5BE0`; the real forwarder target is `FUN_004C7F60`. See §2.
 
 ## Related
 [`dte-scripting-reference.md`](dte-scripting-reference.md) · [[stats-format.md]] ·

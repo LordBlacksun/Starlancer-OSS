@@ -367,11 +367,31 @@ class Mission:
         self.declared, self.image = refpack_decompress(raw)
         if self.declared != len(self.image):
             raise DTEError("size mismatch: header %d, produced %d" % (self.declared, len(self.image)))
+        self._index()
+
+    @classmethod
+    def from_image(cls, image):
+        """Build from an ALREADY-EXPANDED image - i.e. a loose `missions\\*.dte`.
+
+        Loose mission files on disk are raw images, never RefPack (see docs/dte-format.md §2),
+        so this is the constructor to use for anything the game would load from `missions\\`.
+        """
+        self = cls.__new__(cls)
+        self.image = bytes(image)
+        self.declared = len(self.image)
+        self._index()
+        return self
+
+    def _index(self):
         m = self.image
-        self.dir = []  # list of (count, offset, flags)
+        if len(m) < 27 * 8:
+            raise DTEError("image too short for a 27-entry directory (%d bytes)" % len(m))
+        self.dir = []    # list of (count, offset, flags)
+        self.ctrl = []   # the raw control dword per slot, needed to write a count back
         for k in range(27):
             cf, off = struct.unpack_from("<II", m, k * 8)
             self.dir.append((cf & 0xFFFF, off, (cf >> 24) & 0x0F))
+            self.ctrl.append(cf)
         self.reloc_flags = self.dir[0][2] if self.dir else 0
 
     def count(self, slot):
@@ -383,6 +403,70 @@ class Mission:
     def present(self, slot):
         off = self.dir[slot][1]
         return off != EMPTY_OFF and off <= len(self.image)
+
+    # -- fixed-capacity layout + in-place editing ------------------------- #
+    # Sections never move and records are never packed: each section owns a fixed
+    # span, `count` says how many records are live, and the rest is reserved slack.
+    # So an edit is a write into a slot plus a count update, and the image size is
+    # invariant - which is why sections we have not decoded survive verbatim.
+    # See docs/dte-format.md section 3.0.
+
+    def _live_offsets(self):
+        return sorted(o for _, o, _ in self.dir if o != EMPTY_OFF and o <= len(self.image))
+
+    def capacity(self, slot):
+        """Reserved bytes for `slot`: up to the next live section, or end of image."""
+        off = self.dir[slot][1]
+        if off == EMPTY_OFF or off > len(self.image):
+            return 0
+        nxt = min((o for o in self._live_offsets() if o > off), default=len(self.image))
+        return nxt - off
+
+    def max_records(self, slot):
+        """How many records fit in `slot`'s reserved span, or None if the stride is unknown."""
+        stride = SECTIONS[slot][3]
+        return self.capacity(slot) // stride if stride else None
+
+    def record(self, slot, i):
+        stride = SECTIONS[slot][3]
+        if not stride:
+            raise DTEError("section %d (%s) has no known stride" % (slot, SECTIONS[slot][0]))
+        if i >= (self.max_records(slot) or 0):
+            raise DTEError("record %d is beyond section %d's reserved capacity" % (i, slot))
+        off = self.dir[slot][1] + i * stride
+        return self.image[off:off + stride]
+
+    def set_record(self, slot, i, data):
+        """Overwrite one record in place. Never changes the image size."""
+        stride = SECTIONS[slot][3]
+        if not stride:
+            raise DTEError("section %d (%s) has no known stride" % (slot, SECTIONS[slot][0]))
+        if len(data) != stride:
+            raise DTEError("record must be exactly %d bytes, got %d" % (stride, len(data)))
+        if i >= (self.max_records(slot) or 0):
+            raise DTEError("record %d is beyond section %d's reserved capacity" % (i, slot))
+        off = self.dir[slot][1] + i * stride
+        buf = bytearray(self.image)
+        buf[off:off + stride] = data
+        self.image = bytes(buf)
+
+    def set_count(self, slot, n):
+        """Set how many records of `slot` are live, bounded by its reserved capacity."""
+        cap = self.max_records(slot)
+        if cap is None:
+            raise DTEError("section %d (%s) has no known stride" % (slot, SECTIONS[slot][0]))
+        if not 0 <= n <= cap:
+            raise DTEError("count %d outside section %d's capacity of %d" % (n, slot, cap))
+        cf = (self.ctrl[slot] & 0xFFFF0000) | (n & 0xFFFF)
+        buf = bytearray(self.image)
+        struct.pack_into("<I", buf, slot * 8, cf)
+        self.image = bytes(buf)
+        self.ctrl[slot] = cf
+        self.dir[slot] = (n, self.dir[slot][1], self.dir[slot][2])
+
+    def to_image(self):
+        """The image as the game would read it from a loose `missions\\*.dte`."""
+        return self.image
 
     def string(self, rel):
         """Null-terminated string at string_pool + rel (rel = 0xFFFF -> '')."""
@@ -678,8 +762,69 @@ def cmd_sweep(args):
                      len(present), len(nz), max(counts) if counts else 0, note))
 
 
+def cmd_roundtrip(args):
+    """Prove the editing invariant over a directory of missions.
+
+    Two checks per file: (1) parse and re-serialise reproduces the image byte for byte;
+    (2) a single in-place record edit changes ONLY that record's bytes and leaves the
+    image size unchanged. Accepts RefPack-compressed members or loose raw images.
+    """
+    files = sorted(f for f in os.listdir(args.dir) if f.lower().endswith(".dte"))
+    if not files:
+        print("no .dte files in %s" % args.dir)
+        return 1
+
+    SHIPS = 3
+    ident = edit_ok = 0
+    failures = []
+    for fn in files:
+        path = os.path.join(args.dir, fn)
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        try:
+            m = Mission(raw) if raw[1:2] == b"\xfb" else Mission.from_image(raw)
+        except DTEError as exc:
+            failures.append("%s: %s" % (fn, exc)); continue
+
+        before = m.to_image()
+        if before == (Mission.from_image(before)).to_image():
+            ident += 1
+        else:
+            failures.append("%s: re-serialise differs" % fn)
+
+        # in-place edit probe: bump the first ship record's first dword
+        if m.dir[SHIPS][1] != EMPTY_OFF and m.dir[SHIPS][0] > 0:
+            m2 = Mission.from_image(before)
+            rec = bytearray(m2.record(SHIPS, 0))
+            struct.pack_into("<I", rec, 0, (struct.unpack_from("<I", rec, 0)[0] + 1) & 0xFFFFFFFF)
+            m2.set_record(SHIPS, 0, bytes(rec))
+            after = m2.to_image()
+            lo = m2.dir[SHIPS][1]
+            delta = [i for i in range(len(before)) if before[i] != after[i]]
+            if len(after) == len(before) and delta and all(lo <= i < lo + 4 for i in delta):
+                edit_ok += 1
+            else:
+                failures.append("%s: edit touched %d bytes outside the record"
+                                % (fn, len(delta)))
+        if args.verbose:
+            caps = ", ".join("%s %d/%s" % (SECTIONS[s][0], m.dir[s][0], m.max_records(s))
+                             for s in (3, 5, 6) if m.dir[s][1] != EMPTY_OFF)
+            print("  %-18s %9d B   %s" % (fn, len(before), caps))
+
+    print("\nmissions checked                     : %d" % len(files))
+    print("byte-identical round-trip            : %d/%d" % (ident, len(files)))
+    print("edit touched only the intended bytes : %d/%d" % (edit_ok, len(files)))
+    if failures:
+        print("\nFAILURES:")
+        for f in failures:
+            print("  - %s" % f)
+        return 1
+    print("\nthe fixed-capacity editing invariant holds across every mission")
+    return 0
+
+
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Starlancer .DTE decoder + reference (read-only, static).")
+    ap = argparse.ArgumentParser(description="Starlancer .DTE decoder + reference (static; never runs the game).")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("ref"); p.add_argument("table", nargs="?", default="all",
                                               choices=["all", "triggers", "exec", "ai", "stream"])
@@ -696,6 +841,10 @@ def main(argv=None):
     p = sub.add_parser("sweep"); p.add_argument("dir")
     p.add_argument("--sections", action="store_true", help="also print per-section population + stride check")
     p.set_defaults(func=cmd_sweep)
+    p = sub.add_parser("roundtrip", help="verify the fixed-capacity editing invariant over a mission folder")
+    p.add_argument("dir")
+    p.add_argument("--verbose", action="store_true", help="print each mission's size and section usage")
+    p.set_defaults(func=cmd_roundtrip)
     args = ap.parse_args(argv)
     rc = args.func(args)
     sys.exit(rc or 0)
