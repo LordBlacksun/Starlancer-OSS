@@ -57,6 +57,7 @@ and the release ships a `SHA256SUMS.txt` to verify your download.*
 | [`docs/modern-fixes.md`](docs/modern-fixes.md) | Modern-Windows fix catalogue (boot-video skip, wrappers, **native Hor+ widescreen**, DRM, audio …) — RE-backed. |
 | [`docs/running-on-modern-windows.md`](docs/running-on-modern-windows.md) | **Setup checklist & folder layout** — ordered, end-to-end guide to running your owned copy on Win10/11 (DRM, wrappers, our patches, controller, DirectPlay) + troubleshooting map. |
 | [`docs/modding-scene.md`](docs/modding-scene.md) | Community modding tools, the widescreen gap, and DRM notes. |
+| [`docs/external-re-credits.md`](docs/external-re-credits.md) | **Provenance record** — whose external reverse-engineering we build on, what we verified ourselves, and what we deliberately did not copy. |
 
 **Game content reference**
 | Path | Description |
@@ -76,7 +77,8 @@ launch the game.
 **Archive, formats & missions**
 | Path | Description |
 |------|-------------|
-| [`tools/hog_extract.py`](tools/hog_extract.py) | List / extract `.HOG` archives. |
+| [`tools/hog_extract.py`](tools/hog_extract.py) | List / extract `.HOG` archives; `--decompress` expands RefPack payloads (98% of `resource.hog`). |
+| [`tools/refpack.py`](tools/refpack.py) | EA **RefPack / "QFS"** decompressor — the codec wrapping almost every `resource.hog` member. Standalone CLI + self-test. |
 | [`tools/hog_pack.py`](tools/hog_pack.py) | Write / repack `.HOG` (BIGF) archives (byte-identical round-trip). |
 | [`tools/dte_parse.py`](tools/dte_parse.py) | `.DTE` mission **decoder** (RefPack + 27-section directory + script disasm) + reference tables. |
 | [`tools/shp_parse.py`](tools/shp_parse.py) | `.SHP` model **decoder** — chunk walk, typed dumps, structure tree, Wavefront OBJ export, validation sweep. |
@@ -185,6 +187,12 @@ tools and research we build on, with thanks:
   was derived independently from the executable and the game files, without reference to those tools.
 - **Raidersoft** (*StarLancEdit*) and **Twister / Twisted Media** (*Saved Game Editor*) — the
   `MYGAME*.IFF` save and `profile.bin` formats (RE planned).
+- **DMJC** — [*StarLanceDecomp*](https://github.com/DMJC/StarLanceDecomp) (independent RE notes on the
+  same binary) and [*neoslancer*](https://github.com/DMJC/neoslancer) (a C++/SDL2 Linux port). Their
+  work prompted our RefPack archive-layer audit and corrected our identification of the mission
+  gameplay loop; their `.SPR`, `.FNT` and DirectPlay coverage goes well beyond ours. **No code from
+  either repository is used here** — see [`docs/external-re-credits.md`](docs/external-re-credits.md)
+  for exactly what crossed over, what we verified, and why.
 - **esc0rtd3w** — the *blank-intro-videos* project, whose black `blank.bik` the Studio build bundles
   as its boot-video placeholder when a copy is placed in `tools/assets/` (the clip is not part of this
   repo; without it the Studio uses its own generated zero-frame clip from

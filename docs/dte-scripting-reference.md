@@ -239,9 +239,28 @@ Alliance; `Ussr/Mid/Chi/Coal` = Coalition).
 `48` Ussr Boridin · `4A` Torpedo · `4E–5B` debris/corpses · `5F–6C`,`C9–D3` planets ·
 `79–8B` asteroids · `F4–FF` "Tiger"-variant fighters.
 
-**Pilots / IFF** (`0x00`–`0x7B`, ~124): named pilots & callsigns, e.g. `14` Cat Foster,
+**Pilots / IFF** (`0x00`–`0x7B`, **exactly 124**): named pilots & callsigns, e.g. `14` Cat Foster,
 `7A` Cat Foster Prowler. The pilot page does **not** map pilot → faction; faction must be
 inferred from the ship prefix. (Open item — see contribution notes.)
+
+> **Resolved 2026-09-10 — the ID is a record index.** `pilotstats.bin`, decompressed out of
+> `resource.hog`, holds exactly **124 records** of 352 bytes, and the mission-script pilot ID is
+> that record's index: `0x14` = `Cat Foster`, `0x7A` = `Cat Foster Prwlr`, matching the values
+> above, which were derived from mission data alone. The full name table can therefore be read
+> rather than inferred:
+>
+> ```
+> python tools/hog_extract.py resource.hog -o out/ -d -f pilotstats.bin
+> python tools/slstats.py list out/pilotstats.bin
+> ```
+>
+> `slstats list` gives the correct index and name for each pilot, but ignore its numeric columns
+> here: it applies the *ship* field layout, and pilot records are not float stats (see
+> [`stats-format.md`](stats-format.md)).
+>
+> This closes the "~124" estimate and confirms the `0x00`–`0x7B` bound exactly. Faction is still
+> not carried on the pilot record, so the ship-prefix inference stands. The RefPack audit that
+> made the file readable is credited in [`external-re-credits.md`](external-re-credits.md).
 
 ---
 

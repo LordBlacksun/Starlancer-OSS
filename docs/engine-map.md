@@ -12,6 +12,15 @@ assets** — only analysis.
 > referenced debug strings (the game ships with rich `printf`-style diagnostics that name source
 > files and subsystems) and imported APIs. Treat specifics as well-evidenced hypotheses, not gospel.
 
+> **Known bias of that method (2026-09-10).** Attributing a function by the strings it references
+> reliably names its *neighbourhood*, not its *role*. Many of the game's diagnostics are trace
+> labels emitted during setup or teardown, so a function can reference four HUD strings without
+> containing any HUD drawing code — `0x00494040` was exactly that mistake, corrected below.
+> Cross-checking this map against DMJC's independent catalogue (see
+> [`external-re-credits.md`](external-re-credits.md)) confirmed 10 of 14 overlapping
+> identifications, including the entry point at `0x004D1210`, and disputed 4. Rows carrying a
+> **⚠ disputed** marker have two readings and are not yet settled by evidence.
+
 ## 1. Architecture at a glance
 
 Starlancer is a 32-bit Win32 space-combat sim. The engine is a thin game layer over several
@@ -156,7 +165,7 @@ resident logos. (Logo verification 2026-06-12.) See [`modern-fixes.md`](modern-f
 | `0x0042B690` | Key/joystick config | `KeyConfig`, `ForceFeedback`, `JoystickInvert`, `HatEnable`, `TwistEnable`, `controller` |
 | `0x0042C800` / `0x0042CAA0` / `0x0042C630` | Bind serialization | `JoyConfig`, `SHIFT/CONTROL/ALT %d`, `JOY BUTTON %d`, `sdefault.txt` |
 | `0x004BD800` | Force-feedback effect table | per-weapon `*.frc`: `pc/mb/prc/gl/tc/np/cg/gp/vb/nc frc`, `Missile frc`, `Shake frc`, `The FF effects file error` |
-| `0x0047BDB0` / `0x00496290` | FF effect playback | `Joystick effect failed to start` |
+| `0x0047BDB0` / `0x00496290` | ⚠ disputed — FF effect playback | `Joystick effect failed to start`. DMJC names `0x0047BDB0` `SpawnProjectile` (weapon-projectile spawn). Both readings cite the same address; unresolved. |
 
 **DirectInput surface (verified by disasm 2026-06-12 — corrects the earlier "DI 3.0 via
 LoadLibrary" note).** The exe **statically imports `DINPUT.DLL::DirectInputCreateEx`** (thunk
@@ -204,7 +213,7 @@ Stat tables (`SHIPSTATS/GUNSTATS/MISSILESTATS.BIN`, 352-byte records) are docume
 | `0x0045B330` | **Trigger-condition table** | `TT_SHOTAT`, `TT_DESTROYED`, `TT_LAUNCHED`, `TT_CAMERAREACHED`, `TT_SHIPREACHED`, `TT_PROXIMITY_CLOSE/GENERAL`, `TT_OBJECT_SCOOPED`, `TT_PLAYER_READY_TO_JUMP` |
 | `0x0040D210` | Capital-ship/turret AI | `…IONCANNONAI…`, `target destroyed: quitting` |
 | `0x00401000` | Multiplayer AI sync gate | `Player reached sync point: G…` |
-| `0x004924B0` | Mission exit bookkeeping | `exiting mission: player strategy/status/flags %d` |
+| `0x004924B0` | ⚠ disputed — mission exit bookkeeping | `exiting mission: player strategy/status/flags %d`. DMJC names it `UpdateMissionFrame`, the per-rendered-frame gameplay update, with exit checks living in `0x00491FC0`. Unresolved. |
 
 The `TT_*` set corroborates the third-party `.DTE` trigger documentation and is the key to a mission
 editor (cross-ref `docs/dte-format.md`).
@@ -215,9 +224,9 @@ editor (cross-ref `docs/dte-format.md`).
 |---|---|---|
 | `0x00483150` | **HUD render** (`hud.cpp`) | `flip buffer`, `work buffer/2`, `target mesh1/2` |
 | `0x004934F0` | Cockpit / radar overlay | `scockpit frames`, `radaralpha`, `whiteout mesh` |
-| `0x00494040` | HUD target/lock widgets | `uncolour hud target`, `destroy lockring`, `dockring exit`, `chaff exit` |
+| `0x00494040` | **Mission gameplay loop** (`RunMissionGameplay`) — *corrected 2026-09-10, was "HUD target/lock widgets"* | Installs the per-frame callback at `DAT_00588730+0x88`, initialises the mission subsystems, runs the `do`/`while` main loop, then tears down. The four HUD strings are **trace labels** passed to the logging routine `FUN_004BFF10` during teardown, not drawing code. Name confirmed against DMJC's catalogue; re-verified in our own decompilation. |
 | `0x00439FB0` | Interface/menu host (`interface.cpp`) | menu + VR-room movies |
-| `0x00437010` / `0x00437FC0` | Campaign/mission select | `new mission01…28`, `New Searching Mission …` |
+| `0x00437010` / `0x00437FC0` | ⚠ disputed — campaign/mission select | `new mission01…28`, `New Searching Mission …`. DMJC names `0x00437010` `RunMissionBriefingScreen` and `0x00437FC0` a CD-player properties screen. Unresolved. |
 | `0x00443C20` | Loadout screen (`interface\loadout`) | `PnlShipInfo`, `BtnMissiles`, `BtnShips`, `BtnDefault`, `BtnRemoveAll` |
 | `0x004ADC20` | Screenshot | `screenshot%04d.tga` |
 
@@ -283,7 +292,8 @@ All static EXE fixes now ship from one tool, **`tools/sl_patch.py`** (declarativ
   (`0x004C3A60`, `sX := sY·height/width` ⇒ square-pixel Hor+) and forces the flight resolution via a
   cave at device init `0x004ACBE0` (globals `DAT_005d6b2c`/`DAT_005d6c88`). The core flight HUD
   (`hud.cpp` `0x00483150`, cockpit `0x004934F0`) already auto-centres from width/height; **v2** =
-  native-widescreen menus + repositioning the 320×240-grid flight widgets (`0x00494040`).
+  native-widescreen menus + repositioning the 320×240-grid flight widgets (in the `hud.cpp` cluster —
+  this line previously named `0x00494040`, which is the mission loop, not a widget writer).
 - **Frame cap (`--fps`): no EXE patch by design** — the 100 Hz is the *simulation* timebase (§2a),
   not a render limiter; the cap is renderer vsync (`srddraw.dll`). See `modern-fixes.md` §4.
 - **Medal-case crash (`--fix-medal`): ROOT-CAUSED + fixed.** Trigger = the bunk/ready-room **medal-case

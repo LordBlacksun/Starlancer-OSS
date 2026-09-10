@@ -36,7 +36,8 @@
 **Re-releases:** some copies are **Ubisoft-branded re-releases**, which may differ from the MS 2000 SafeDisc-v1 original in **version and/or DRM** — confirm from your own installed files rather than assuming SafeDisc v1. Inno Setup installers can be unpacked read-only with **`innoextract`** (no need to run the installer).
 
 ## 4. Source / reimplementation
-- **No Starlancer source or reimplementation exists.**
+- **No Starlancer source has ever been released.** A reimplementation now exists, though — this section said otherwise until 2026-09-10.
+- **neoslancer** (DMJC, from 2026-09-08) — a cross-platform reimplementation in C++20 on SDL2 + OpenGL, with Bink playback via FFmpeg: https://github.com/DMJC/neoslancer . Already boots a real retail install's front-end — menu tree, options screens reading and writing `starlancer.ini`, the ship-interior VR room, and the intro movie sequence. No gameplay (flight, combat, mission loading) yet. Ships `hogdump`, `sprviewer` and `tgaviewer` as dev tools. Its RE notes live in the sibling https://github.com/DMJC/StarLanceDecomp . **Neither repo carries a licence as of 2026-09-10**, so nothing from them is vendored here — see [`external-re-credits.md`](external-re-credits.md) for what we verified, what we adopted, and what we did not.
 - Closest family base: **Librelancer** — MIT-style open reimplementation of the *Freelancer* engine, with **LancerEdit** tooling ( https://librelancer.net/ ). **Starlancer: Reborn** recreates Starlancer *on the Freelancer engine* ( https://www.moddb.com/mods/starlancer-reborn ). Viable base only if the goal shifts from binary-patching to reimplementation.
 
 ## 5. Formats & tools
@@ -49,8 +50,12 @@ The historical toolchain is archived at [Starlancer-mod-tools](https://github.co
 | **`MYGAME*.IFF`** | save games | **StarLancEdit 1.11** (Raidersoft) |
 | save / MP profile | callsign, kills, rank, level… | **StarLancer Saved Game Editor 1.0** (Twister) |
 | **`SHIPSTATS.BIN` / `GUNSTATS.BIN` / `MISSILESTATS.BIN`** | stat tables | **SLEdit** (Dustin; stat editing); `hexcheat` (Userunfriendly) = pre-modded drop-ins |
+| **RefPack / "QFS"** | the codec wrapping most `resource.hog` members | ours: `tools/refpack.py`, `tools/hog_extract.py -d` (decode only — no encoder yet). Also DMJC's `refpack_decompress.py` |
+| **`.SPR`** | WinVFX sprite/"shape" sheets (UI, HUD, medals) | **still unspecified on our side.** DMJC has a decoder + shape/RLE spec recovered from `VFX_shape_blit_unclipped` in `WINVFX8.DLL`, plus an interactive `sprviewer` |
+| **`.FNT` / `.CCB` / palette `.TGA`** | bitmap fonts and the master 256-colour palette | **unspecified on our side.** DMJC documents the font layout and reports the real master palette lives in `palette.tga` / `softpal.tga`, not the `.ccb` files |
 
 - **SLExtract's source (VC6/MFC) is the key asset** — a working description of the `.HOG` archive format. **Now fully reverse-engineered → see [`hog-format.md`](hog-format.md);** a modern cross-platform extractor lives at `tools\hog_extract.py` (validated by `tests/hog_selftest.py`).
+- ⚠️ **Extracting a HOG member does not give you a usable file.** The container is uncompressed, but **98% of `resource.hog`'s members are RefPack streams** — every model, mission, font, palette and stats table. Older tools that extract verbatim hand you a compressed blob. Use `hog_extract.py --decompress`. Table and caveats: [`hog-format.md`](hog-format.md).
 - Tools are 24+ yrs old (Win9x/2000/XP) — may need compatibility mode / a VM / Wine for the InstallShield-packaged ones.
 - Starlancer uses **its own** HOG/SHP formats (not Freelancer's UTF), though the Freelancer/Librelancer ecosystem remains a reference for shared lineage.
 - FMV/movie container: still **UNCONFIRMED** (none of these tools touch it).

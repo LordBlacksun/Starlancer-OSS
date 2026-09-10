@@ -3,7 +3,16 @@
 *Reverse-engineered 2026-06-08 from the extracted game files (`LANCER.CAB\CAB\*.bin`) by diffing against **Userunfriendly's** *hexcheat* known-delta mod pack — each hexcheat file super-stats exactly one ship, so the changed dwords reveal field offsets. Tool: [`tools/slstats.py`](../tools/slstats.py).*
 
 ## Where they live
-Not in the CD `.HOG` archives (those are media only). They ship inside the disc's InstallShield payload **`LANCER.CAB`** (a *standard MS-CAB*, LZX — `7z x LANCER.CAB`), under `CAB\shipstats.bin`, `CAB\gunstats.bin`, `CAB\missilestats.bin`, `CAB\pilotstats.bin`. At install they become loose files in the game directory (which is what SLEdit / hexcheat overwrite).
+Not in the CD `.HOG` archives (`CD1.HOG`/`CD2.HOG` are media only). They ship inside the disc's InstallShield payload **`LANCER.CAB`** (a *standard MS-CAB*, LZX — `7z x LANCER.CAB`), under `CAB\shipstats.bin`, `CAB\gunstats.bin`, `CAB\missilestats.bin`, `CAB\pilotstats.bin`. At install they become loose files in the game directory (which is what SLEdit / hexcheat overwrite).
+
+> **A second, pristine copy lives in `resource.hog`** *(found 2026-09-10)*. The installed asset archive carries all four tables as RefPack payloads, decompressing byte-for-byte identical to the loose files on a clean install. That makes it a **baseline for verifying or restoring a modded install** — diff the loose file against the archived one to see exactly what a mod changed:
+>
+> ```
+> python tools/hog_extract.py resource.hog -o baseline/ -d -f shipstats.bin
+> python tools/bin_diff.py baseline/shipstats.bin shipstats.bin
+> ```
+>
+> Which copy the engine actually prefers at load time is **not yet determined** — worth settling before relying on either for a mod.
 
 ## Common record format (all three tables)
 A flat array of fixed **352-byte (0x160) records**, no header:
@@ -14,7 +23,26 @@ A flat array of fixed **352-byte (0x160) records**, no header:
 | 0x40 | 4×15 | `float32 stats[15]` (little-endian) — see below |
 | 0x7C | 0xE4 | per-record tail — loadout/geometry/hardpoints; **not yet decoded, preserved verbatim** |
 
-Counts: `shipstats.bin` = **256** records (0x16000), `gunstats.bin` = **15** (0x14A0), `missilestats.bin` = **16** (0x1600). `pilotstats.bin` (43,648 B) not yet analysed.
+Counts: `shipstats.bin` = **256** records (0x16000), `gunstats.bin` = **15** (0x14A0), `missilestats.bin` = **16** (0x1600), `pilotstats.bin` = **124** (0xAA80).
+
+### `pilotstats.bin` — first pass *(2026-09-10)*
+
+124 records, sharing the common 352-byte layout and 64-byte name field, e.g. `0x00` `45tigerswl Bandit`, `0x14` `Cat Foster`, `0x7A` `Cat Foster Prwlr`. The record index **is** the pilot/IFF ID used by mission scripts — see [`dte-scripting-reference.md`](dte-scripting-reference.md).
+
+The stat block is **not** floats here, unlike the other three tables. Only the first seven dwords at `0x40` are used, each holding a small integer, and everything from `0x5C` on is zero across all 124 records:
+
+| field | offset | values observed |
+|---|---|---|
+| 0 | `0x40` | 1 (97 pilots) · 2 (27) |
+| 1 | `0x44` | 1 (93) · 2 (31) |
+| 2 | `0x48` | 1 (91) · 2 (33) |
+| 3 | `0x4C` | 1 (56) · 2 (68) |
+| 4 | `0x50` | 1 (116) · 2 (8) |
+| 5 | `0x54` | 1 (122) · 2 (2) |
+| 6 | `0x58` | 1 (all 124) |
+| 7–14 | `0x5C`–`0x78` | 0 (all 124) |
+
+Six binary-valued per-pilot fields, one constant, the rest unused. **What they mean is undetermined** — skill tier, voice set and squadron behaviour are all plausible and none is evidenced. `slstats.py` renders these as denormal floats because it applies the ship layout; read them as `uint32`.
 
 ## Ship `stats[15]` (offsets 0x40–0x78)
 Confirmed by the hexcheat diffs (0x40–0x5C are solid; **0x60–0x78 labels are PROVISIONAL** — order inferred from the readme's reference values, to be confirmed against the decrypted exe's parser):
