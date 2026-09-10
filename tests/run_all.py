@@ -22,6 +22,10 @@ CHECKS = [
      [sys.executable, os.path.join("tests", "hog_selftest.py")]),
     ("hog packer round-trip",
      [sys.executable, os.path.join("tools", "hog_pack.py"), "--selftest"]),
+    # The codec inside almost every resource.hog member. Fixtures are hand-built
+    # opcode streams, so this covers all five forms without any game data.
+    ("refpack decompressor self-test",
+     [sys.executable, os.path.join("tools", "refpack.py"), "--selftest"]),
     ("sl_patch engine self-test",
      [sys.executable, os.path.join("tests", "sl_patch_selftest.py")]),
     ("shp model parser self-test",

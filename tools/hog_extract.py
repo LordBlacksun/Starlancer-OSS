@@ -6,17 +6,27 @@
 Format reverse-engineered from SLExtract (DraconPern & KingLord); see
 docs/hog-format.md. A .HOG is an EA BIGF archive: big-endian 16-byte header,
 a table-of-contents of (offset, length, NUL-terminated name) entries, then
-raw uncompressed file blobs.
+file blobs stored back-to-back.
+
+The container applies no compression of its own, but most *payloads* inside
+`resource.hog` are EA RefPack streams (98% of its members - every model,
+mission, font, palette and stats table). Extracting such a member gives you a
+compressed file, so `--decompress` expands them on the way out; see
+`docs/hog-format.md` and `refpack.py`.
 
 Usage:
   python hog_extract.py <archive.hog>                      # list contents
-  python hog_extract.py <archive.hog> -o <outdir>          # extract all
+  python hog_extract.py <archive.hog> -o <outdir>          # extract all, verbatim
+  python hog_extract.py <archive.hog> -o <outdir> -d       # extract, expanding RefPack
   python hog_extract.py <archive.hog> -o <outdir> -f foster.bik   # extract some
 """
 import argparse
 import os
 import struct
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import refpack  # noqa: E402  (sibling module; the path insert above makes this work anywhere)
 
 MAGIC = b"BIGF"
 
@@ -51,6 +61,8 @@ def main(argv=None):
     ap.add_argument("-o", "--out", help="extract into this directory (omit to just list)")
     ap.add_argument("-f", "--file", action="append", default=[],
                     help="only extract this filename (repeatable); default = all")
+    ap.add_argument("-d", "--decompress", action="store_true",
+                    help="expand RefPack payloads on extraction (leaves other members as-is)")
     args = ap.parse_args(argv)
 
     with open(args.archive, "rb") as fh:
@@ -64,11 +76,22 @@ def main(argv=None):
         print("  ! declared archive_size != actual file size", file=sys.stderr)
 
     want = set(n.lower() for n in args.file)
-    extracted = 0
+    extracted = expanded = 0
     for i, (name, offset, length) in enumerate(entries):
+        blob = data[offset:offset + length]
+        packed = refpack.is_refpack(blob)
+
         if not args.out:
-            print("  [%4d] %10d  0x%08X  %s" % (i, length, offset, name))
+            note = ""
+            if packed:
+                try:
+                    declared, _ = refpack.decompress_ex(blob)
+                    note = "  refpack -> %d" % declared
+                except refpack.RefPackError as exc:
+                    note = "  refpack (bad: %s)" % exc
+            print("  [%4d] %10d  0x%08X  %s%s" % (i, length, offset, name, note))
             continue
+
         if want and name.lower() not in want:
             continue
         if offset + length > len(data):
@@ -78,14 +101,26 @@ def main(argv=None):
         if not dest:
             print("  ! %s: unsafe name, skipping" % name, file=sys.stderr)
             continue
+
+        payload, note = blob, ""
+        if args.decompress and packed:
+            try:
+                payload = refpack.decompress(blob)
+                expanded += 1
+                note = " <- refpack %d" % length
+            except refpack.RefPackError as exc:
+                # Keep the raw blob rather than write a file we know is wrong.
+                print("  ! %s: %s; extracted compressed" % (name, exc), file=sys.stderr)
+
         os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
         with open(dest, "wb") as out:
-            out.write(data[offset:offset + length])
+            out.write(payload)
         extracted += 1
-        print("  extracted %s  (%d bytes)" % (name, length))
+        print("  extracted %s  (%d bytes)%s" % (name, len(payload), note))
 
     if args.out:
-        print("Done: %d file(s) -> %s" % (extracted, args.out))
+        tail = ", %d expanded from RefPack" % expanded if args.decompress else ""
+        print("Done: %d file(s) -> %s%s" % (extracted, args.out, tail))
 
 
 if __name__ == "__main__":
