@@ -72,6 +72,22 @@ inspection); the game does not need to be run to analyze it. Document findings w
 - Markdown, one format/subsystem per file under [`docs/`](docs/); cross-reference related docs.
 - Credit prior art (below).
 
+## Licensing of contributions
+
+The repository is licensed by kind (see the README's [License](README.md#license) section), and a
+contribution is accepted under the licence of the part it lands in — "inbound = outbound", no CLA:
+
+- **Code and tools** (`tools/`, `tests/`, build scripts): **GPL-3.0-only** ([`LICENSE`](LICENSE)).
+  New source files carry the `SPDX-License-Identifier: GPL-3.0-only` header the existing ones do.
+- **Documentation under `docs/`**: **CC BY 4.0** ([`docs/LICENSE`](docs/LICENSE)), so that every
+  Starlancer project, whatever its own licence, can build on the research. By contributing text to
+  `docs/` you agree to offer it under CC BY 4.0. That also means: do not paste in prose you can only
+  offer under a share-alike or stricter licence (text from a CC BY-SA document, or from a repository
+  with no licence). *Facts and findings* from other projects are always welcome, with credit — it is
+  their *wording* that carries a licence, not the discovery.
+- **`docs/game-reference/`** stays **CC BY-SA 3.0**, because it derives from the Starlancer Wiki on
+  Fandom; contributions there carry that licence.
+
 ## Credit prior art
 
 If your finding builds on someone else's research, credit them by name and link. Current examples:

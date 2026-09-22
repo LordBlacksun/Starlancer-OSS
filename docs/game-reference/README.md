@@ -15,8 +15,9 @@ this section explains what actually *happens* in them.
 > reverse-engineering reference, cross-checked against our own static analysis of the game where the
 > two overlap. Full credit and thanks to the Starlancer Wiki editors. Corrections and in-game
 > measurements made by this project are flagged inline. These reference pages are offered under the
-> same **CC BY-SA 3.0** terms as the source (the repository's code and technical docs remain under
-> the GPL — see the root [`LICENSE`](../../LICENSE)).
+> same **CC BY-SA 3.0** terms as the source. This directory is the one exception to
+> [`docs/LICENSE`](../LICENSE), which puts the rest of the technical documentation under CC BY 4.0;
+> the repository's code remains GPL-3.0-only — see the root [`LICENSE`](../../LICENSE).
 
 ---
 
