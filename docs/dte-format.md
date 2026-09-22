@@ -81,20 +81,20 @@ to a live pointer (`offset + image base`). `offset == 0xFFFF` marks an unused se
 
 | # | global | contents (✓ = stride/role verified) |
 |---|---|---|
-| 0 | `DAT_00525FA8` | string pool (names resolved by index) |
+| 0 | `DAT_00525FA8` | string pool (NUL-terminated names, referenced by **byte offset** into the pool) |
 | 1 | `DAT_00525F3C` | operand-resolution array (kind 0, `FUN_004529D0`) ✓ stride `2` |
 | 2 | `DAT_005294F8` | **globals / variables** ✓ stride `0x0C` (`u16 nameIdx`, `u32 value`) |
-| 3 | `DAT_0052951C` | **ship / flight-group array** ✓ stride `0x4C`, count `DAT_00529504` |
-| 4 | `DAT_005267CC` | **objective / operand table** ✓ stride `0x14` (`FUN_00452AA0`) |
+| 3 | `DAT_0052951C` | **ships** — placed ships, stations and nav points ✓ stride `0x4C`, count `DAT_00529504`; `+0x00` is the record's **object ID** (§3.1) |
+| 4 | `DAT_005267CC` | **flight groups** ✓ stride `0x14` (`FUN_00452AA0` = record lookup). The VM's `push_flight_group` (`0x2D`, handler `0x45C560`) indexes it, and `+0x00` is an object ID whose section-7 entry has kind 1 (1,132 of 1,133 shipped records) — **corrected 2026-09-22**, see §9b |
 | 5 | `DAT_005294E0` | **trigger / event records** ✓ stride `0x30` |
-| 6 | `DAT_00525F88` | **script bytecode base** ✓ (IP origin for the VM) |
-| 7 | `DAT_005267C0` | **per-ship trigger index** ✓ stride `8` (`+1` count, `+2` u16 first-index) |
+| 6 | `DAT_00525F88` | **script bytecode base** ✓ (IP origin for the VM). **The count is in halfwords:** the section holds `count × 2` bytes — section 10 carries exactly `2 × count` flags in 44/44 missions, and trigger links (§4) and part starts are halfword offsets (`script + link × 2` in the matcher). Corrected 2026-09-22 |
+| 7 | `DAT_005267C0` | **object table** ✓ stride `8`, indexed by object ID: `+0` kind (`0` ship, `1` flight group, `2` squad), `+1` number of triggers in the object's slice of section 5, `+2` u16 index of the first, `+4` u32 open. Kind-1 and kind-2 entry counts equal the section-4 and section-12 counts in 44/44 missions |
 | 8 | `DAT_005267D0` | object / launch table ✓ stride `0x1C` |
 | 9 | `DAT_005256C8` | populated in 16/44 missions; record layout TBD |
 | 10 | `DAT_005294D8` | **per-bytecode-byte flag array** ✓ (VM yield map, indexed `IP − bytecode base`) |
 | 11 | `PTR_DAT_004EF2FC` | operand / target list |
-| 12 | `DAT_005294FC` | secondary trigger/condition list (count `DAT_005294F0`) |
-| 13 | `DAT_00529500` | squad / membership table ✓ stride `0x0C` |
+| 12 | `DAT_005294FC` | **squads** ✓ stride `0x0C`, count `DAT_005294F0`: `+0x00` object ID (kind 2 in 958 of 959 shipped records), `+0x08` u16 index of the squad's first membership record in section 13 (`0xFFFF` = none). The VM's `push_squad` (`0x44`, handler `0x45C850`) indexes it — **corrected 2026-09-22**, see §9b |
+| 13 | `DAT_00529500` | **squad membership records** ✓ stride `0x0C`, count `DAT_00529520`: `+0` u32 member object ID, `+4` u32 owning squad index (→ section 12), `+8` u8 component index of the member, or `0xFF` for the whole member (4,468 of 5,172 shipped records); a squad's records are consecutive. Members may be ships, flight groups, other squads, or single components |
 | 14 | `DAT_00525F18` | stride `8`; entry `+4` u16 → sec 15 (rare: 3/44) |
 | 15 | `DAT_005256B8` | position / nav-geometry records ✓ stride `0x10` (rare: 3/44) |
 | 16 | `DAT_00525FB0` | **sub-object / model table** ✓ stride `0x44` (36/44; index fields + 3-D coord vectors; `FUN_004571D0`) |
@@ -105,13 +105,14 @@ to a live pointer (`offset + image base`). `offset == 0xFFFF` marks an unused se
 | 21 | (stack temp) | transient (count only) |
 | 22 | `DAT_00525278` | operand-resolution array (kind 1) ✓ stride `2` (large: ≤ 61436) |
 | 23 | `PTR_DAT_004EE7D8` | populated 40/44; record layout TBD |
-| 24 | `DAT_00525F9C` | populated 36/44; record layout TBD |
+| 24 | `DAT_00525F9C` | **per-command flag words** ✓ stride `2`: one `u16` per Executor command. The `0x21` handler (`0x45BEA0`) reads entry `i`, inverts bit 0 and stores it at `DAT_00537584` before calling command `i` (verified); what the flags mean is open (openreliant: cumulative masks such as 1, 3, 7). Populated 36/44 |
 | 25 | `DAT_00525F90` | vestigial — empty in all 44 |
 | 26 | `DAT_0052570C` | operand-resolution array (kind 2) ✓ stride `2` (rare: 3/44) |
 
 > Strides + population above come from a 44-mission `dte_parse.py sweep --sections` (offset +
-> count·stride stays in-image, **zero overflow**); "vestigial" = empty in all 44. Sections 9, 12,
-> 23, 24 are populated but their record layouts are still open (§11).
+> count·stride stays in-image, **zero overflow**); "vestigial" = empty in all 44. Sections 9 and
+> 23 are populated but their record layouts are still open (§11). Sections 4, 6, 7, 12, 13 and 24
+> were re-read against the VM handlers and all 44 missions on 2026-09-22 (§9b).
 
 ---
 
@@ -138,13 +139,13 @@ using it:
 | 0 | `string_pool` | 1 | 1,024 | 65,535 | 65,535 | 39,108 |
 | 2 | `globals` | 12 | 197,623 | 3,072 | 256 | 77 |
 | 3 | `ships` | 76 | 200,695 | 38,912 | 512 | 372 |
-| 4 | `fg_triggers` | 20 | 239,607 | 5,120 | 256 | 61 |
+| 4 | `flight_groups` | 20 | 239,607 | 5,120 | 256 | 61 |
 | 5 | `triggers` | 48 | 244,727 | 49,152 | 1,024 | 133 |
-| 6 | `script` | 1 | 293,879 | 65,536 | 65,536 | 8,020 |
-| 7 | `ship_trig_index` | 8 | 359,415 | 7,168 | 896 | 498 |
+| 6 | `script` | 1 | 293,879 | 65,536 | 65,536 | 16,040 bytes (count 8,020 halfwords) |
+| 7 | `object_table` | 8 | 359,415 | 7,168 | 896 | 498 |
 | 8 | `launch_object` | 28 | 366,583 | 7,168 | 256 | 91 |
 | 10 | `script_yieldflags` | 1 | 377,847 | 65,532 | 65,532 | 16,040 |
-| 13 | `squad` | 12 | 444,919 | 9,216 | 768 | 296 |
+| 13 | `squad_members` | 12 | 444,919 | 9,216 | 768 | 296 |
 | 15 | `section15` | 16 | 454,647 | 8,192 | 512 | 13 |
 | 16 | `section16` | 68 | 462,839 | 17,408 | 256 | 24 |
 
@@ -167,9 +168,13 @@ beyond it — those are the two real bounds.
 
 ### 3.1 Record layouts
 
-**Ship / flight-group** (stride `0x4C` = 76 B; `DAT_0052951C`, count `DAT_00529504`). Field map
+**Ship** (stride `0x4C` = 76 B; `DAT_0052951C`, count `DAT_00529504`). Field map
 verified by decoding all 44 (`dte_parse.py decode --section ships`) plus the load-time mirror
-`FUN_00452010`/`FUN_004520A0` and the arm loop `FUN_0045CBC0`: flight-group # at `+0x00`; **name
+`FUN_00452010`/`FUN_004520A0` and the arm loop `FUN_0045CBC0`: **object ID** `u32` at `+0x00` —
+unique within its mission and indexing the section-7 object table, whose entry has kind 0 for every
+one of the 8,265 shipped ship records (we read this field as the flight-group number until
+2026-09-22; corrected after openreliant, §9b) — the **flight group** is the `u8` at `+0x14`
+(`0xFF` = none); **name
 index** `u16` at `+0x04` (→ string pool, e.g. `Player_Ship`, `(A1)Naginata`, `(WL)Viper's
 Coyote`); **position vector** (3×`float`) at `+0x08` — the *runtime* copy, mirrored at load from
 the *authored* position at `+0x1C` by `FUN_00452010`; IFF/team byte at `+0x15`; type/role code
@@ -202,7 +207,8 @@ emits *"ERROR: No mission Objectives defined!"* when the active slot is empty.
 
 ## 4. Trigger system  [VERIFIED]
 
-**Conditions — the `TT_*` enum.** Stored at trigger-record `+0x15`. **33 scriptable types,
+**Conditions — the `TT_*` enum.** Stored at trigger-record **`+0x00`** (not `+0x15`, as this
+section said until 2026-09-22 — see §9b). **33 scriptable types,
 `0x00`–`0x20`**, verified from the string array in `FUN_0045B330` and identical to Starlancer
 ME's table (this **corrects** the earlier 35-entry list with its duplicate `TT_RIPPER_*` and
 mis-ordered tail). Full list in [`dte-scripting-reference.md`](dte-scripting-reference.md). The
@@ -214,21 +220,28 @@ condition-*descriptor* table `DAT_0052952C` (stride `0x1C`) has 35 entries
 
 | off | field |
 |---|---|
-| `+0x00` | subject ship / flight-group ref |
-| `+0x01` | repeat mode: `0` one-shot (clears `+0x14` on fire), `2` repeat-N via counter `+0x19` |
-| `+0x02` | `u16` linked action/script index (`0xFFFF` = none) |
-| `+0x14` | enabled flag (armed to `1` by `FUN_0045CBC0`) |
-| `+0x15` | `TT_*` condition type |
-| `+0x16` | action id → spawns the script thread (`FUN_0045B8D0`) |
-| `+0x19` | repeat counter |
-| `+0x1C…` | operand array (stride 4), each validated by `FUN_0045D810` |
+| `+0x00` | **`TT_*` condition** — the event type the trigger watches; compared with the event's condition byte at `0x45CF6E`–`0x45CF72`. All 2,446 shipped triggers hold `0x00`–`0x1F` here |
+| `+0x01` | repeat mode: `0` one-shot (clears `+0x14` on fire), `1` never disarms, `2` repeat-N via counter `+0x19` (`0x45D06C`–`0x45D094`) |
+| `+0x02` | `u16` **link**: the block to run, as a **halfword offset** into section 6 (`script + link × 2`, `0x45D055`–`0x45D05E`); `0xFFFF` = none |
+| `+0x14` | armed flag (set to `1` by `FUN_0045CBC0` for every trigger an object's slice holds; tested first by the matcher) |
+| `+0x15` | **qualifier**: the component of the subject the trigger watches, by index, or `0xFF` for the subject itself (2,168 of 2,446 shipped triggers); compared with the event's qualifier byte at `0x45CF78`–`0x45CF7F` |
+| `+0x16` | byte passed to the thread starter `FUN_0045B8D0` when the trigger fires (`0` in 2,114 shipped triggers, `1` in 323); openreliant reads it as "zero runs the block's thread at once, inside the event, otherwise the scheduler does" — not re-verified here |
+| `+0x19` | repeat counter (mode 2) |
+| `+0x1C…` | operand array (stride 4), one per value the condition's events carry, each validated by `FUN_0045D810`; an operand whose low halfword is `0xFFFF` is not checked |
+
+**A trigger holds no subject.** The subject is implicit: a trigger sits in its subject's *slice* of
+section 5, addressed through the section-7 object table (`+1` count, `+2` first index). When an event
+happens to an object, `FUN_0045CEA0` walks that slice (`0x45CF0C`–`0x45CF47`) and fires each trigger
+that is armed, has the event's condition and qualifier, has a link, and whose operands pass. (Until
+2026-09-22 this table placed a "subject ref" at `+0x00` and the condition at `+0x15`; both were
+wrong — see §9b.)
 
 **Condition descriptor** (`0x1C`; `DAT_0052952C` → `&PTR_s_ShotAt_004F6698`): `+0x0C` scatter
 slot into per-ship state, `+0x0D` discriminator, `+0x10/+0x14/+0x18` three handler pointers.
 
-**Firing path.** Event → look up the subject's trigger list via per-ship index `DAT_005267C0`
-→ `FUN_0045CEA0` tests type + operands → on success spawn the action script via the record's
-`+0x16`. **Proximity** (types 5/6) and inside/outside-object (4) are *polled* in `FUN_0045AF60`
+**Firing path.** Event → the subject's slice via the object table `DAT_005267C0` →
+`FUN_0045CEA0` tests `+0x14`, `+0x00`, `+0x15`, `+0x02 ≠ 0xFFFF`, then the operands → on success
+`FUN_0045B8D0` starts a thread at `script + link × 2`, passing `+0x16` → the repeat mode is applied. **Proximity** (types 5/6) and inside/outside-object (4) are *polled* in `FUN_0045AF60`
 (squared-distance tests). Fired triggers queue in `DAT_0052ABE0` (stride `0x30`, cap 1000 →
 *"Trigger List exceeded"*).
 
@@ -237,17 +250,19 @@ slot into per-ship state, `+0x0D` discriminator, `+0x10/+0x14/+0x18` three handl
 ## 5. Scripting bytecode VM  [VERIFIED]
 
 A **single bytecode stream** (section 6, base `DAT_00525F88`) interpreted by **`FUN_0045C980`**:
-fetch one opcode byte → index the **256-entry handler table `DAT_004F6350`** → advance IP →
+fetch one opcode byte → index the **86-entry handler table `DAT_004F6350`** (`0x00`–`0x55`; 71
+populated — the entries past `0x55` are the condition-descriptor data) → advance IP →
 call handler; repeat until a handler returns 0 (yield/finish). Each action-script block is
 prefixed by a `u16` byte length; a thread is created by `FUN_0045B8D0` (IP at thread-ctx
 `+0x10`, end = base + leading length). A parallel **per-byte flag array** (section 10,
 `DAT_005294D8`, indexed `IP − DAT_00525F88`) marks yield points so long scripts suspend across
 frames.
 
-Two registers of meaning share the stream: **commands** (`0x21 <i>` → the Executor catalogue at
-VA `0x4F0F50`, installed by `FUN_0045CE30`, dispatched by `FUN_0045BEA0`) and **micro-ops** (compare
-/ push-immediate / global read-write — the if/else machinery). The complete opcode, Executor-command
-and AI-code (`0x32`, 0x00–0x44) tables are in
+It is a **stack machine**: **commands** (`0x21 <i>` → the Executor catalogue at
+VA `0x4F0F50`, installed by `FUN_0045CE30`, dispatched by `FUN_0045BEA0`) pop their arguments from
+an operand stack that the other opcodes build — pushes of constants, bytes, strings, globals and
+record pointers, compares, arithmetic, big-endian branches, part calls. The complete opcode,
+Executor-command and AI-mode tables are in
 **[`dte-scripting-reference.md`](dte-scripting-reference.md)**. We now walk the catalogue in full —
 **95 real commands (`0x00`–`0x5E`)** with the developers' own names, **parameter labels** and impl
 addresses recovered from the binary — which also **corrects the command numbering** at `0x16`–`0x19`
@@ -261,7 +276,8 @@ and `0x26`–`0x2A` (see §9).
 (*"Failure", "Partial Failure", "Partial Success", "Success", "Success + Bonus"*; debug
 *"Mission is flagged as a %s"*) — this **corrects** the earlier "1–4". A mission **defaults to
 "failed"** and is promoted by the win/lose data-flow: when the kill condition fires, opcode
-`0x40` writes a flag; at mission end `0x27` reads it and the `0x02/0x03` compare branches to
+`0x40` selects a global and `assign` writes it; at mission end `0x27` reads it, `equal` (`0x02`)
+/ `not_equal` (`0x03`) compares, and `branch_if_zero` (`0x23`/`0x24`) picks
 SUCCESS vs FAIL (playing `…_001.ut` vs `…_002.ut`). `TerminateMission` ends the mission.
 
 ---
@@ -299,11 +315,42 @@ SUCCESS vs FAIL (playing `…_001.ut` vs `…_002.ut`). `TerminateMission` ends 
 |---|---|
 | `TT_*` trigger enum | **Exact match** (33, `0x00`–`0x20`). Our `FUN_0045B330` array ≡ their *Triggers* page. |
 | Executor commands (`0x21`) | We **walk the engine's live catalogue** (`0x4F0F50`; 95 cmds + impl + param labels). Indices agree **except `0x16`–`0x19` and `0x26`–`0x2A`**, where the blog mistook parameter-label text for commands (its `GTextPilotDefine`/`RadiusOfSphere`/`ShipPointToFlyTo` are the *params* of `DisplaySubTitle`/`SetActionCentre`/`Fly`; `WaitNSeconds`/`ShipToDock`/`EntityToCloak` paraphrase `Wait`/`Dock`/`Cloak`) and folds away the `CommsFromPilot`/`…Once` twins. Catalogue numbering is authoritative; blog names kept as a cross-reference. |
-| `0x27`/`0x40`/`0x3F` | Their behavioural read-mem/write-mem/jump ≡ our static read-global / global-lvalue / array-lvalue. |
-| AI codes (`0x32`), ship/pilot IDs | Their tables (we have not re-derived these numerically; adopted with credit). |
+| `0x27`/`0x40`/`0x3F` | Their behavioural read-mem/write-mem ≡ our `push_global` / `select_global`; `0x3F` is `select_array`, not a jump (§9b). |
+| AI modes, ship/pilot IDs | Their tables (we have not re-derived these numerically; adopted with credit). `0x32` is `push_byte`, not an "AI opcode" — the AI mode is the value it pushes for `SetAI` (§9b). |
 | Win/lose, default-fail, carrier-landing tree | Their **runtime semantics** (observed in-game) — a layer pure disassembly lacks. |
 | File container offsets | **Exact match (resolved).** Their offsets = positions in our *decompressed* (RefPack) image: `ships 0x30FF7`, `events 0x47BF7`, `targets 0x57BF7` all coincide to the byte. The packed-vs-expanded form was the only difference. |
 | Outcome tiers | We correct to **0–4** (five); resolved the count. |
+
+### 9b. Reconciliation with openreliant — six corrections to this document (2026-09-22)
+
+[openreliant](https://github.com/vdmkenny/openreliant) (`docs/formats/dte.md`, CC BY-SA 4.0) read
+the VM's handlers and the loader rather than the byte patterns, and stated where it diverged from
+us. We re-checked each divergence against the handler table at `0x4F6350` (read out of the exe as
+data and disassembled) and all 44 shipped missions. **They were right on every point**; the
+corrections above are theirs, verified here:
+
+| claim | evidence |
+|---|---|
+| The trigger's **condition is at `+0x00`** and the subject is implicit; `+0x15` is the qualifier | matcher `0x45CEA0`: `cmp [rec+0x00], event.condition` at `0x45CF6E`; `cmp [rec+0x15], event.qualifier` at `0x45CF7C`; `+0x00` ∈ `0x00`–`0x1F` in 2,446/2,446 triggers, `+0x15` = `0xFF` in 2,168 |
+| **Sections 4, 12, 13** hold flight groups, squads and squad members | `push_flight_group` `0x2D` → `[0x5267CC] + 0x14·n`; `push_squad` `0x44` → `[0x5294FC] + 0x0C·n`; section 12 `+8` indexes section 13 in the membership walk; object-table kind counts match 44/44 |
+| A ship's **`+0x00` is its object ID** | unique per mission and kind 0 in section 7 for 8,265/8,265 records |
+| **`0x02` is `equal`, `0x03` `not_equal`** (we had them inverted) | handlers `0x45BAD0` (`sete`) and `0x45BB00` (`setne`) |
+| **`0x28` pushes a constant**, **`0x32` pushes a byte** (we had "wait" and "set AI") | `0x45C340` reads `[0x5373F0] + 4n`; `0x45C6B0` pushes the operand byte. "Wait" and "set AI" were the *commands* (`0x05`, `0x0B`) that consume those pushes |
+| The **section-6 count is in halfwords** | section 10 = `2 ×` section 6 in 44/44; `script + link × 2` at `0x45D05E` |
+
+Two further rows of the old stream-opcode table fell to the same evidence: `0x2A` is
+`push_string` (a length byte that counts itself, then NUL-terminated text — `2A 0F "new_sim02.wav\0"`
+in `mission81`, not a "speech index"), and `0x23`/`0x24` are `branch_if_zero` with a big-endian
+displacement, not "push immediate". The full corrected table is in
+[`dte-scripting-reference.md`](dte-scripting-reference.md). The namespaces that were never in
+conflict still stand: Executor command `0x28` is `Fly` and `0x05` is `Wait` (the catalogue is
+indexed by the byte after `0x21`), and Starlancer ME's AI-mode table is the value domain of
+`SetAI`'s *AI Mode* parameter.
+
+**`tools/dte_parse.py` predates these corrections.** Its `ref stream` table and its linear
+`decode --section script` listing still carry the old readings — and read the section-6 count as
+bytes, so they cover only half of each script. Treat that listing as untrustworthy until the tool is
+rewritten. The container, directory, ship and Executor-catalogue decoders are unaffected.
 
 ---
 
@@ -324,11 +371,13 @@ is a loose game file, not part of our extracted data, so this is code-proven rat
 
 ## 11. Open items
 
-* Record layouts of the still-undecoded **populated** sections — 9 (16/44), 12 (34/44), 23 (40/44),
-  24 (36/44) — plus deep field decode of sec 15 (nav geometry) and sec 16 (sub-object/model table).
+* Record layouts of the still-undecoded **populated** sections — 9 (16/44) and 23 (40/44) — plus
+  deep field decode of sec 15 (nav geometry) and sec 16 (sub-object/model table), and the meaning of
+  the per-command flag words in sec 24. (Sections 12 and 13 were decoded 2026-09-22, §9b.)
   *These no longer block a mission editor* (§3.0): unmoved sections round-trip verbatim, so they
   gate editing their own contents and nothing else.
-* Pilot → faction (IFF) binding; exact `0x28`/`0x23` compare semantics.
+* Pilot → faction (IFF) binding. (The `0x28`/`0x23` semantics are settled: `push_constant` and
+  `branch_if_zero`, §9b.)
 * RefPack **encoder** + HOG repack — needed only to write missions back *into the archive*. A
   loose-file editor needs neither: loose `missions\*.dte` are raw images (§2) and the game prefers
   a loose file over the HOG copy. The decode side is done.
