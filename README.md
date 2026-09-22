@@ -1,7 +1,8 @@
 # Starlancer Open-Source Project
 
 [![CI](https://github.com/LordBlacksun/Starlancer-OSS/actions/workflows/ci.yml/badge.svg)](https://github.com/LordBlacksun/Starlancer-OSS/actions/workflows/ci.yml)
-[![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
+[![Code: GPL-3.0-only](https://img.shields.io/badge/code-GPL--3.0--only-blue.svg)](LICENSE)
+[![Docs: CC BY 4.0](https://img.shields.io/badge/docs-CC%20BY%204.0-lightgrey.svg)](docs/LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
 [![No game data](https://img.shields.io/badge/game%20data-none%20(guarded)-brightgreen.svg)](tools/check_no_game_data.py)
 [![Static only](https://img.shields.io/badge/analysis-static%20only-informational.svg)](AI-TRANSPARENCY.md)
@@ -200,7 +201,8 @@ tools and research we build on, with thanks:
 - The **game content reference** ([`docs/game-reference/`](docs/game-reference/)) is compiled from the
   community **[Starlancer Wiki on Fandom](https://starlancer.fandom.com/)** under
   **[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/)** (those pages are offered under
-  the same terms; the rest of the repo remains GPL-3.0). With thanks to the Starlancer Wiki editors.
+  the same terms; the rest of `docs/` is CC BY 4.0 and the code GPL-3.0-only — see
+  [License](#license)). With thanks to the Starlancer Wiki editors.
 
 Many of these tools are preserved in the
 **[Starlancer-mod-tools](https://github.com/LordBlacksun/Starlancer-mod-tools)** mirror; each remains
@@ -210,10 +212,27 @@ under its original author's terms (typically freeware).
 
 Copyright (C) 2026 LordBlacksun.
 
-Free software under the **GNU General Public License v3.0 only** — see [LICENSE](LICENSE). You may
-use, modify, and redistribute it under those terms; derivative works must also be released under
-the GPL, so improvements come back to the community.
+Two licences, split by kind — because copyleft defends against *enclosure*, and enclosure is a real
+risk for tools but not for published file-format knowledge:
 
-One documented exception: the game-content pages under [`docs/game-reference/`](docs/game-reference/)
-are compiled from the community Starlancer Wiki and are offered under **CC BY-SA 3.0**, the same terms
-as their source. Everything else in this repository is GPL-3.0-only.
+- **Code and tools** — `tools/`, `tests/`, the build scripts, and everything else that is not
+  documentation — are free software under the **GNU General Public License v3.0 only**, see
+  [LICENSE](LICENSE). You may use, modify and redistribute them under those terms; derivative works
+  must also be released under the GPL, so improvements come back to the community.
+- **Documentation under [`docs/`](docs/)** — the format specs, the engine map, the scripting
+  reference, the fix recipes — is licensed **[CC BY 4.0](docs/LICENSE)** (Creative Commons
+  Attribution 4.0 International). Any other project, **whatever its own licence** — MPL, MIT,
+  CC BY-SA, proprietary, or none yet — may quote, adapt, translate and build on this research, with
+  attribution. This is deliberate, and it is for the scene: the other Starlancer efforts could not
+  legally reuse GPL-licensed prose, and share-alike on documentation bought no defence (a published
+  fact cannot be enclosed) while blocking interoperability, so as of 2026-09-22 the documentation is
+  share-alike-free. Attribute as *"Starlancer-OSS documentation (LordBlacksun and contributors),
+  CC BY 4.0"* with a link to the repository or to the file you used.
+- **One exception inside `docs/`:** the game-content pages under
+  [`docs/game-reference/`](docs/game-reference/) are compiled from the community
+  [Starlancer Wiki on Fandom](https://starlancer.fandom.com/) and remain
+  **[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/)**, the same terms as their
+  source — share-alike binds us there. With thanks to the Starlancer Wiki editors.
+
+The game itself, its assets, and the names, strings and tables the documentation transcribes from
+its executable belong to their owners and are covered by neither licence.

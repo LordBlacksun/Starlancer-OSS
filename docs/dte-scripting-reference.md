@@ -16,7 +16,9 @@ script-stream opcodes. This **fuses two independent reverse-engineering efforts*
 
 > The companion tool `tools/dte_parse.py` holds these tables as importable data and prints
 > them (`dte_parse.py ref exec|triggers|ai|stream`). The Executor table below is generated
-> from it verbatim, so the doc and the tool can never drift.
+> from it verbatim, so the doc and the tool can never drift. (The tool's `stream` table and its
+> script disassembler predate the 2026-09-22 correction below and are pending a rewrite; the
+> Executor table is unaffected.)
 
 ---
 
@@ -26,30 +28,34 @@ A `.DTE` carries data sections (ships, triggers, globals, strings, …) plus a b
 **script bytecode**. Execution is event-driven:
 
 1. The engine raises an event (a ship is destroyed, a proximity sphere is entered, a timer
-   expires, …). It looks up the acting ship's **trigger list** (per-ship index → trigger
-   records) and tests each record's condition (`TT_*` value at record `+0x15`) against the
-   event, plus its operands (`FUN_0045CEA0`).
-2. On a match, the record's **action id** (`+0x16`) spawns a **script thread**
-   (`FUN_0045B8D0`): the thread's instruction pointer is set just past a leading `u16` that
-   gives the block's byte length.
+   expires, …) on an object. It walks that object's **slice** of the trigger list (section 7,
+   the object table, gives the slice's first index and count) and takes each record that is armed
+   (`+0x14`), has the event's condition (`TT_*` at `+0x00`) and qualifier (`+0x15`), links to a
+   block (`+0x02 ≠ 0xFFFF`) and whose operands pass (`FUN_0045CEA0`).
+2. On a match, `FUN_0045B8D0` starts a **script thread** at `script + link × 2`: the link at
+   `+0x02` is a halfword offset, and the block it names begins with a `u16` length that counts
+   itself. The byte at `+0x16` chooses whether the thread runs at once or from the scheduler.
 3. The thread is run by the interpreter **`FUN_0045C980`**: a flat loop that fetches one
-   opcode byte, indexes the **256-entry handler table `DAT_004F6350`**, advances the IP, and
-   calls the handler — repeating until a handler returns 0 (yield/finish). A parallel
-   per-byte flag array (section `DAT_005294D8`, indexed by `IP − DAT_00525F88`) marks yield
-   points so long scripts can suspend across frames.
-4. Action opcodes that name a high-level command (`0x21 <index>`) dispatch through the
-   **command catalogue `DAT_004F3AD0`** (installed by `FUN_0045CE30`), which holds, per
-   command, its implementation pointer, parameter count, name, and per-parameter labels.
+   opcode byte, indexes the **86-entry handler table `DAT_004F6350`** (`0x00`–`0x55`), advances
+   the IP, and calls the handler — repeating until a handler returns 0 (yield/finish). A
+   parallel per-byte flag array (section 10, `DAT_005294D8`, indexed by `IP − DAT_00525F88`)
+   marks yield points so long scripts can suspend across frames.
+4. The VM is a **stack machine**. Commands (`0x21 <index>`) dispatch through the **command
+   catalogue at `0x4F0F50`** (installed by `FUN_0045CE30`), which holds, per command, its
+   implementation pointer, parameter count, name and per-parameter labels — and each command
+   **pops its arguments** from the operand stack that the other opcodes build (pushes of
+   constants, bytes, strings, globals and record pointers; compares; arithmetic; big-endian
+   branches; part calls).
 
-So there are two registers of meaning in one stream: **commands** (`0x21 <i>` → the Executor
-table) and **micro-ops** (comparisons, immediates, global read/write — the if/else
-machinery). Both are listed below.
+So a script line such as `SetAI(ship, mode, …)` is a run of pushes followed by one `21 0B`.
+Both halves are listed below.
 
 ---
 
 ## Trigger conditions (`TT_*`)
 
-The condition type stored at trigger-record `+0x15`. **33 scriptable types, `0x00`–`0x20`** —
+The condition type stored at trigger-record `+0x00` (`+0x15` is the component *qualifier* —
+see [`dte-format.md`](dte-format.md) §4). **33 scriptable types, `0x00`–`0x20`** —
 verified from the string array in `FUN_0045B330` and identical to Starlancer ME's *Triggers*
 page. (The condition-*descriptor* table `DAT_0052952C` has 35 entries / `_DAT_00525F8C=0x23`;
 the 2 beyond `0x20` are internal, non-scriptable conditions.)
@@ -166,9 +172,13 @@ recovered symbols, not guesses. Every command's parameter labels are listed in
 
 ---
 
-## AI behaviour codes (script opcode `0x32 <index>`)
+## AI modes (the *AI Mode* argument of `SetAI`, command `0x0B`)
 
-Set a ship/flight-group's AI pattern. From Starlancer ME's *AI Codes* page, `0x00`–`0x44`.
+The value a script passes as `SetAI`'s second parameter (*"AI Mode"*, see [§ Command
+parameters](#command-parameters)). In the bytecode it is almost always pushed by `push_byte`
+(`0x32 <n>`) immediately before `21 0B`, which is how Starlancer ME came to read `0x32` as "set AI";
+`0x32` itself is only a push (see the opcode table below). From Starlancer ME's *AI Codes* page,
+`0x00`–`0x44`; not re-derived from the binary here.
 
 | | | | |
 |---|---|---|---|
@@ -193,36 +203,94 @@ Set a ship/flight-group's AI pattern. From Starlancer ME's *AI Codes* page, `0x0
 
 ---
 
-## Script-stream & expression opcodes
+## Script-stream & expression opcodes  [CORRECTED 2026-09-22]
 
-The bytes that frame the action stream and evaluate conditions. `0x21`/`0x32` are the two
-"prefixed" dispatchers above; the rest push operands or perform the if/else logic behind
-`SUCCESS`/`FAIL` branching. (Stream-byte semantics are corroborated by Starlancer ME's
-hex-level posts; the expression micro-ops by our VM table `DAT_004F6350`.)
+The VM is a **stack machine**. Every opcode either pushes a value, pops values and pushes a result,
+moves the instruction pointer, or calls something with the values on the stack. There is no separate
+"expression" and "action" register: a command (`0x21 <i>`) simply pops its arguments. The handlers
+are the 86 pointers at `DAT_004F6350` (`0x00`–`0x55`; `0x00`, `0x01`, `0x08`–`0x13` and `0x50` are
+null, leaving 71 opcodes; five pairs share a handler and are the same operation). Names follow
+openreliant's `docs/formats/dte.md`, which read the handlers and corrected this table's earlier
+pattern-level readings; the rows marked ✓ were re-verified here against the handler bytes
+(capstone over the exe read as data), the rest are openreliant's and are not yet re-read. `a` is the
+value below the top of the stack, `b` the top. Operand bytes follow the opcode; `d16` displacements
+are **big-endian** and are counted from the displacement's own address.
 
-| opcode | kind | meaning |
-|---|---|---|
-| `0x21 <i>` | command | Call Executor command `#i` (consumes that command's params) |
-| `0x32 <i>` | AI code | Set AI behaviour `#i` on the current entity |
-| `0x2A <n>` | speech | Play speech: `n` = speech index (our HOG copies); blog's copies embed a literal `.ut` filename |
-| `0x2C <o>` | operand | Single-object reference (one ship/entity) |
-| `0x2D <g>` | operand | Flight-group reference |
-| `0x22 <p>` | part | Section/part marker `22 00`…`22 1F` — start of script "part" `p` |
-| `0x4D <p>` | part jump | Branch into part `p` |
-| `0x43` | end | Code/line-end marker |
-| `0x27 <i>` | expr | **Read** global `var[i].value` (read-mem) |
-| `0x40 <i>` | expr | Push **address** of global `var[i].value` (write-mem lvalue) |
-| `0x3F <i>` | expr | Push address of array slot `[i]` (lvalue); land-loop branch in the ending context |
-| `0x23` / `0x24` | expr | Push 16-bit immediate |
-| `0x28 <n>` | expr | Wait / operand fetch (compare context) |
-| `0x02` / `0x03` | expr | Compare `!=` / `==` |
-| `0x14` | expr | Squad / condition membership test |
+| opcode | handler | name | effect |
+|---|---|---|---|
+| `0x02` / `0x03` | `0x45BAD0` / `0x45BB00` | `equal` / `not_equal` | pop `b`, `a`; push `a == b` / `a != b` (`sete` / `setne`) ✓ |
+| `0x04` / `0x05` | `0x45BB30` / `0x45BB60` | `greater` / `greater_equal` | unsigned compare of `a` with `b` ✓ |
+| `0x06` / `0x07` | `0x45BB90` / `0x45BBC0` | `less` / `less_equal` | unsigned compare (openreliant) |
+| `0x14` / `0x15` | `0x45BBF0` / `0x45BC30` | `in_flight_group` / `not_in_flight_group` | pop `b` (flight group), `a` (ship); push whether `FUN_00452AA0(a) == b` ✓ |
+| `0x16`–`0x1A` | | `assign`, `add_assign`, `sub_assign`, `mul_assign`, `div_assign` | store through the current select target (openreliant) |
+| `0x1B`–`0x1E` | | `add`, `sub`, `mul`, `div` | (openreliant) |
+| `0x1F` / `0x20` | | `logical_and` / `logical_or` | (openreliant) |
+| `0x21 <i>` | `0x45BEA0` | `command` | call Executor command `i` (catalogue `0x4F0F50`, stride `0x74`): drops `params` values from the stack, calls the implementation, stores its result; section-24 flag bit 0 (inverted) goes to `DAT_00537584` first ✓ |
+| `0x22 <p>` | `0x45BFA0` | `call_part` | call part `p` (runtime part table `[0x538C94]`, stride `0x74`): pushes the argument count, return IP, frame base and block end, then enters the block ✓ |
+| `0x23` / `0x24` `<d16>` | `0x45C270` | `branch_if_zero` | pop; if zero, IP = displacement address + `d16`, else skip the two bytes ✓ |
+| `0x25` / `0x43` | `0x45C6E0` | `return` | pop the call frame, or end the thread when the call depth is zero ✓ |
+| `0x26 <n>` | `0x45C2D0` | `push_array` | push `[0x52A3F0 + 4n]` ✓ |
+| `0x27 <n>` | `0x45C300` | `push_global` | push `globals[n].value` (`DAT_005294F8 + 12n + 4`) ✓ |
+| `0x28 <n>` | `0x45C340` | `push_constant` | push dword `n` of the running block's constant table (`[0x5373F0] + 4n`, the table that follows the block) ✓ |
+| `0x29 <n16>` | `0x45C370` | `push_constant_wide` | (openreliant) |
+| `0x2A` / `0x2B` `<len> text NUL` | `0x45C3B0` | `push_string` | push a pointer to the text after the length byte; IP += `len` — the length counts itself (`2A 0F "new_sim02.wav\0"`) ✓ |
+| `0x2C <n>` | `0x45C3E0` | `push_ship` | push `&ships[n]` (`DAT_0052951C + 0x4C·n`) ✓ |
+| `0x2D <n>` | `0x45C560` | `push_flight_group` | push `&flight_groups[n]` (`DAT_005267CC + 0x14·n`, section 4) ✓ |
+| `0x2E` / `0x32` `<n>` | `0x45C6B0` | `push_byte` | push the operand byte ✓ |
+| `0x2F <n>` | `0x45DA50` | `push_percent` | push `n` percent of the top value (openreliant) |
+| `0x30 <n>` | `0x45C5A0` | `push_local` | push thread local `n` (`thread + 0x18 + 4n`; a trigger block's locals hold the event's values) ✓ |
+| `0x31 <n>` | `0x45C680` | `push_argument` | push `[frame_base + 4n]` ✓ |
+| `0x33`–`0x36` | `0x45DAB0`… | `greater_f` … `less_equal_f` | the compares through the FPU (openreliant) |
+| `0x37`–`0x3E` | `0x45DC30`… | `add_assign_f` … `div_f` | float assigns and arithmetic (openreliant) |
+| `0x3F <n>` / `0x40 <n>` | `0x45C790` / `0x45C7D0` | `select_array` / `select_global` | set the store target (`DAT_00537408`) to `&array[n]` / `&globals[n].value` and push its value ✓ |
+| `0x41 <n>` | `0x45C810` | `select_argument` | (openreliant) |
+| `0x42 <d16>` | `0x45C2B0` | `jump` | IP = displacement address + `d16` ✓ |
+| `0x44 <n>` | `0x45C850` | `push_squad` | push `&squads[n]` (`DAT_005294FC + 0x0C·n`, section 12) ✓ |
+| `0x45` / `0x46` | `0x45C890` / `0x45C8D0` | `in_squad` / `not_in_squad` | `FUN_00452AC0(a, b, 0xFF)`: the membership walk over sections 12 and 13, nested squads included ✓ |
+| `0x47` / `0x55` `<n> <c>` | `0x45C460` | `push_component` | push ship `n`, tagged with component `c` (openreliant) |
+| `0x48` | `0x45C4B0` | `push_null` | push `−1`, for parameters labelled "can be NULL" (openreliant) |
+| `0x49 <n>` / `0x54 <n>` | `0x45C4D0` / `0x45C520` | `push_sub_object` / `push_section_19` | push record `n` of sections 16 / 19 (openreliant) |
+| `0x4A` / `0x4E` / `0x4F` | `0x45C110` / `0x45C1E0` / `0x45BF20` | `call_part_b` / `spawn_part_b` / `command_b` | the same through the second part and command tables, which serve section 18 (openreliant) |
+| `0x4B <c> <v> <o>` | `0x45C5E0` | `push_event_value` | push value `v` kept for condition `c` on object `o` (records of `0x28` bytes at `DAT_00538CA0`; descriptor slot `[DAT_0052952C + 0x1C·c + 0xC]`) ✓ |
+| `0x4C` | `0x45C650` | `push_result` | push the last command's result (openreliant) |
+| `0x4D <p>` | `0x45C070` | `spawn_part` | move the part's arguments to a new thread (`FUN_0045B960`), start it on the part (`FUN_0045B8D0`) and carry on ✓ |
+| `0x51 …` | `0x45C910` | `random_branch` | count, big-endian default target, then `count` arms of (big-endian target, threshold, one unidentified byte) (openreliant) |
+| `0x52 <n16>` / `0x53` | `0x45C420` / `0x45C510` | `push_ship_wide` / `nop` | (openreliant) |
+
+**Blocks and constants.** A block is a `u16` length that counts its own two bytes, then
+instructions ending in `return`, padded to a four-byte boundary; its constant table — the dwords
+`push_constant` reads — follows immediately. `mission1`'s first trigger block, byte for byte:
+
+```
+1c 00                     length 28 (counts itself)
+22 01                     call_part 1          (F)Jumping to CONVOY
+21 17                     command 0x17         InterruptTriggerCode
+27 00  28 00  02          push_global 0 (GV)convoykilled; push_constant 0 (= 1); equal
+24 00 07                  branch_if_zero  -> +7 (to the call_part 24 below)
+22 15                     call_part 21         (F)GO HOME (Total Loss)
+42 00 04                  jump -> +4
+22 18                     call_part 24         (F)Jumping to Sherman
+21 17  32 01  43          command 0x17; push_byte 1; return
+32 01                     padding to the 4-byte boundary
+01 00 00 00               constant 0 = 1
+08 00 22 0d               filler dword (rounding to 8 bytes; never read)
+```
+
+Read with the corrected opcodes the block says *if convoykilled == 1 then "GO HOME (Total Loss)"
+else "Jumping to Sherman"*, which is the mission's plot. Read with the old `0x02 = !=` it said the
+opposite — the clearest single piece of evidence that the old table was wrong.
 
 **Win/lose pattern** (Starlancer ME's flagship observation, matching our `0x27`/`0x40`
-decode): when the kill condition is met, `0x40` **writes** a flag; at mission end `0x27`
-**reads** it and the `0x02/0x03` compare selects the SUCCESS vs FAIL branch — which play
-different comms (`…_001.ut` vs `…_002.ut`). Missions **default to "failed"** and are promoted
-to one of the five outcome grades (see `dte-format.md` §Outcomes).
+decode): when the kill condition is met, `0x40` selects a global and `assign` **writes** it; at
+mission end `0x27` **reads** it, `equal`/`not_equal` compares, and `branch_if_zero` picks the
+SUCCESS or FAIL branch — which play different comms (`…_001.ut` vs `…_002.ut`). Missions
+**default to "failed"** and are promoted to one of the five outcome grades (see `dte-format.md`
+§Outcomes).
+
+> **`tools/dte_parse.py`** still carries the pre-correction `STREAM_OPS` table and a linear decoder
+> whose operand widths (`0x2A`, `0x42`, the opcodes it does not know) and script length (it reads the
+> section-6 count as bytes, not halfwords) make its `decode --section script` listing unreliable.
+> It is pending a rewrite; do not key anything off that listing.
 
 ---
 
@@ -361,3 +429,10 @@ maintains a Python "Mission Ship Editor". This document pairs that black-box res
 static disassembly (implementation addresses, parameter counts, the VM, struct layouts). Where
 the two overlap they agree; where they differ it is noted above and in
 [`dte-format.md`](dte-format.md).
+
+The stack-machine reading of the opcodes — `equal`/`not_equal`, `push_constant`, `push_byte`,
+`push_string`, `branch_if_zero`, `call_part`, `return` and the rest — follows **openreliant**
+(<https://github.com/vdmkenny/openreliant>, `docs/formats/dte.md`, CC BY-SA 4.0), which corrected
+this document's earlier pattern-level readings; every row marked ✓ above was re-verified here
+against the handler bytes. The names are theirs; the verification is ours. See
+[`dte-format.md`](dte-format.md) §9b for the evidence table.

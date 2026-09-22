@@ -210,3 +210,92 @@ For completeness, the external efforts credited elsewhere in these docs:
 - **RibShark — SafeDiscShim**, **Dege — dgVoodoo2**, **narzoul — DDrawCompat**,
   **Teleguy — Starlancer Crash Fix**, **esc0rtd3w — blank intro videos**. See
   [`modding-scene.md`](modding-scene.md).
+
+---
+
+## 6. openreliant — `vdmkenny/openreliant` (2026)
+
+- **Reimplementation and notes:** https://github.com/vdmkenny/openreliant — "an
+  open-source, faithful reimplementation of the engine of StarLancer", in Zig on
+  SDL3 with Vulkan (Metal on macOS), reading the game's files in place.
+- **Created 2026-09-21.** Licence: **MPL-2.0** for the code (stock text, no
+  "Incompatible With Secondary Licenses" notice), **CC BY-SA 4.0** for `docs/`.
+
+### What it contains
+
+A flying sandbox (every ship flyable, ported flight model, cockpit view, part of
+the HUD; no weapons, missions or sound yet), `sltool` (readers for `.hog`,
+RefPack, `.shp`, `.spr`, texture caches, `.fat`, `.fnt`, `.dte` with a script
+disassembler, and the stats tables), `tablegen` (derives the VM's opcode,
+command and condition tables, the model tables and the control bindings from the
+executable), Ghidra scripts with a names/types file, and 25 reference documents
+covering the formats, the binary and the engine.
+
+Its distinctive contribution to the record is **source-file reconstruction**
+(`docs/binary/sources.md`): 77 `C:\lancer\...` paths recovered from the assert
+macro's `__FILE__` strings, then link-order inference — objects are contiguous
+and files come in alphabetical runs — that places the payload's functions into
+that source tree, so a Ghidra program tree can be organised as the original
+`lancer\game`, `surrender\surrenderlib` and so on.
+
+### How they relate to us
+
+They cite this repository in six places — the README's "Related projects",
+`docs/formats/shp.md`, `docs/formats/dte.md`, `docs/formats/stats.md` (twice)
+and a doc-comment in `src/formats/stats.zig` — and state that no code of ours is
+used. That was the only legal option: until 2026-09-22 our documentation was
+GPL-3.0, which a CC BY-SA 4.0 document set cannot incorporate. They therefore
+**re-derived rather than copied**: "Everything above was re-checked against the
+44 shipped missions and the engine's own code" (`dte.md`), "Every structure
+offset and count in this document was re-verified against the 440 shipped
+models" (`shp.md`). Our docs are now CC BY 4.0 precisely so that this kind of
+re-derivation is a choice, not a requirement.
+
+### What we verified
+
+Their `dte.md` names five points where it follows the engine code against our
+`dte-format.md`. We re-checked every one against the VM handler table at
+`0x4F6350` (read out of the exe as data and disassembled with capstone) and all
+44 shipped missions, and **they were right on every point**:
+
+| their claim | what we found |
+|---|---|
+| `0x02` tests equality, `0x03` inequality | handlers `0x45BAD0` (`sete`) / `0x45BB00` (`setne`); ours was inverted |
+| sections 4, 12, 13 hold flight groups, squads, squad members | `push_flight_group` indexes `[0x5267CC]` by `0x14`, `push_squad` `[0x5294FC]` by `0x0C`; section 12 `+8` indexes 13; object-table kind counts match 44/44 |
+| the trigger's condition is at `+0x00`, its subject implicit | the matcher compares `[rec+0x00]` with the event's condition and `[rec+0x15]` with its qualifier; `+0x00` ∈ `0x00`–`0x1F` in 2,446/2,446 triggers |
+| `0x28` pushes a constant, `0x32` a byte | `0x45C340` reads the block's constant table; `0x45C6B0` pushes its operand byte |
+| a ship's `+0x00` is its object ID | unique and kind 0 in section 7 for 8,265/8,265 records |
+
+The same read confirmed the shape of the handler table they describe (86
+entries, 71 populated, five shared handlers), their reading of section 24 as
+per-command flag words (the `0x21` handler inverts bit 0 into `DAT_00537584`),
+their halfword unit for the section-6 count (section 10 holds exactly twice it
+in 44/44 missions), and their byte-level disassembly of `mission1`'s first
+block. Nothing in their DTE document was found to be wrong.
+
+### What we adopted, and what we did not
+
+**Adopted, with credit in place:** the corrections above plus `push_string`
+and `branch_if_zero`, now in [`dte-format.md`](dte-format.md) §9b and the
+corrected opcode table in
+[`dte-scripting-reference.md`](dte-scripting-reference.md). Their opcode
+names are used throughout that table; rows we could not yet re-verify are
+marked as theirs.
+
+**Not adopted:** no code (MPL-2.0 could enter a GPL-3.0 work one way under MPL
+§3.3, but nothing of theirs was needed), and no prose — CC BY-SA 4.0 text cannot
+be pasted into our CC BY 4.0 documents without making the result share-alike.
+Facts crossed; wording did not.
+
+### What each side has that the other lacks
+
+They: the source-tree reconstruction, the engine documents (camera, backdrop,
+rendering, objects, loop, controls, HUD, orders, maneuvers), `.spr` / `.fnt` /
+`.fat` / texture-cache readers, and a running flight model. We: the widescreen
+projection writer `0x4C3A60` and the static patch pack (outside their scope),
+the `.SHP` tree-node, animation-clip and trigger-polygon decodes and the
+attachment-kind table their issue #11 asks for, the `.frc` load path and the
+`HatEnable` / `ForceFeedback` consumers their `controls.md` marks unknown, and
+the RefPack in-place constraint an encoder must respect. Those are being
+offered back; [`modding-scene.md`](modding-scene.md) §4 maps the licence
+directions that now let that happen.

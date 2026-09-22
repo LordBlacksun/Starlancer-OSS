@@ -1,5 +1,5 @@
 # Starlancer (2000) — Modding & Modern-Windows Fix Scene
-*Researched 2026-06-08 (tooling / fix status updated through 2026-06-30). Every claim has a source; items that could not be confirmed are marked UNCONFIRMED.*
+*Researched 2026-06-08 (tooling / fix status updated through 2026-06-30; the reimplementations and the licence map in §4 through 2026-09-22). Every claim has a source; items that could not be confirmed are marked UNCONFIRMED.*
 
 > ⚠️ Search note: "Starlancer" is polluted by unrelated projects (a crypto job-marketplace repo, a Lethal Company mod, and the *Freelancer* sequel's tooling). Everything below is the 2000 Digital Anvil space-combat sim only.
 
@@ -35,10 +35,23 @@
 
 **Re-releases:** some copies are **Ubisoft-branded re-releases**, which may differ from the MS 2000 SafeDisc-v1 original in **version and/or DRM** — confirm from your own installed files rather than assuming SafeDisc v1. Inno Setup installers can be unpacked read-only with **`innoextract`** (no need to run the installer).
 
-## 4. Source / reimplementation
-- **No Starlancer source has ever been released.** A reimplementation now exists, though — this section said otherwise until 2026-09-10.
-- **neoslancer** (DMJC, from 2026-09-08) — a cross-platform reimplementation in C++20 on SDL2 + OpenGL, with Bink playback via FFmpeg: https://github.com/DMJC/neoslancer . Already boots a real retail install's front-end — menu tree, options screens reading and writing `starlancer.ini`, the ship-interior VR room, and the intro movie sequence. No gameplay (flight, combat, mission loading) yet. Ships `hogdump`, `sprviewer` and `tgaviewer` as dev tools. Its RE notes live in the sibling https://github.com/DMJC/StarLanceDecomp . **Neither repo carries a licence as of 2026-09-10**, so nothing from them is vendored here — see [`external-re-credits.md`](external-re-credits.md) for what we verified, what we adopted, and what we did not.
+## 4. Source / reimplementation — and who may use what
+- **No Starlancer source has ever been released.** Two independent reimplementations now exist (this section said otherwise until 2026-09-10), plus two tool projects. The scene's projects chose different licences, so the table at the end of this section says in which direction code and prose may legally flow. **Facts** — an address, a struct offset, a format rule — are not copyrightable and cross every boundary with a citation; it is *code* and *wording* that carry a licence.
+- **openreliant** (vdmkenny, from 2026-09-21) — "a faithful reimplementation of the engine of StarLancer" in **Zig on SDL3 + Vulkan** (Metal on macOS), reading the game's files in place with nothing extracted or converted first: https://github.com/vdmkenny/openreliant . Status (2026-09-22): a **flying sandbox** — every ship flyable with the ported flight model, throttle, afterburner and the camera views including the cockpit, the backdrop (starfield, nebula, sun) and part of the HUD (targeting cluster, radar, status lights); no other ships, weapons, missions or sound yet. Ships **`sltool`** (readers for `.hog` + RefPack, `.shp` with OBJ export, `.spr`, texture caches, `.fat`, `.fnt`, `.dte` with a script disassembler, and the stats tables) and **`tablegen`**, which derives the VM's opcode, command and condition tables, the model tables and the control bindings from the executable. Its notable contribution to the RE record is **source-file reconstruction** (`docs/binary/sources.md`): 77 `C:\lancer\...` paths recovered from the assert macro's `__FILE__` strings, then link-order inference that places the payload's functions into that source tree. Its `.DTE` document also corrected six claims of ours — see [`dte-format.md`](dte-format.md) §9b. **Licence: MPL-2.0 code, CC BY-SA 4.0 docs.** Details in [`external-re-credits.md`](external-re-credits.md) §6.
+- **neoslancer** (DMJC, from 2026-09-08) — a cross-platform reimplementation in C++20 on SDL2 + OpenGL, with Bink playback via FFmpeg: https://github.com/DMJC/neoslancer . Already boots a real retail install's front-end — menu tree, options screens reading and writing `starlancer.ini`, the ship-interior VR room, and the intro movie sequence. No gameplay (flight, combat, mission loading) yet. Ships `hogdump`, `sprviewer` and `tgaviewer` as dev tools. Its RE notes live in the sibling https://github.com/DMJC/StarLanceDecomp . **Neither repo carries a licence as of 2026-09-22** (we asked on 2026-09-10 — [DMJC/StarLanceDecomp#2](https://github.com/DMJC/StarLanceDecomp/issues/2) — no reply yet), so nothing from them is vendored here — see [`external-re-credits.md`](external-re-credits.md) for what we verified, what we adopted, and what we did not.
 - Closest family base: **Librelancer** — MIT-style open reimplementation of the *Freelancer* engine, with **LancerEdit** tooling ( https://librelancer.net/ ). **Starlancer: Reborn** recreates Starlancer *on the Freelancer engine* ( https://www.moddb.com/mods/starlancer-reborn ). Viable base only if the goal shifts from binary-patching to reimplementation.
+- **StarLancerEditor** (mini, from 2026-05-10) — a .NET library and tools for the archive, mission and save formats: https://src.ug.gg/mini/starlancereditor . **Licence: MIT** (per its repository page; not otherwise examined here).
+
+**Licence direction — where help can flow (as of 2026-09-22).** "Docs" means the prose of a project's documentation or RE notes; facts always cross.
+
+| project | code | docs / notes | may take from us | we may take from them |
+|---|---|---|---|---|
+| **Starlancer-OSS** (this repo) | GPL-3.0-only | **CC BY 4.0** (`docs/`; `docs/game-reference/` CC BY-SA 3.0) | — | — |
+| **openreliant** | MPL-2.0 (stock; no "Incompatible With Secondary Licenses" notice) | CC BY-SA 4.0 | **docs: yes** — CC BY text may be included in a BY-SA work, with attribution. **Code: no** — GPL code cannot enter an MPL project. | **code: yes, one way** — MPL-2.0 files may be combined into a GPL-3.0 work under MPL §3.3, staying MPL-licensed as files. **Docs: facts only** — BY-SA prose cannot be pasted into our CC BY docs without making the result BY-SA. |
+| **neoslancer / StarLanceDecomp** | none | none | **docs: yes. Code: only if they adopt a GPL-compatible licence** (a combined work has to be distributable under the GPL). | **nothing** — no licence means all rights reserved. Facts with citation only. |
+| **StarLancerEditor** | MIT | (in-repo) | **docs: yes. Code: no** (GPL cannot be relicensed to MIT). | **code: yes** — MIT is GPL-compatible; keep the MIT notice. |
+
+Until 2026-09-22 our documentation was GPL-3.0 too, which turned every "docs: yes" above into a "no". That is why it was relicensed.
 
 ## 5. Formats & tools
 The historical toolchain is archived at [Starlancer-mod-tools](https://github.com/LordBlacksun/Starlancer-mod-tools), a mirror of `download.wcnews.com/files/starlancer/`. Known Starlancer formats and the tools that handle them:
@@ -56,6 +69,7 @@ The historical toolchain is archived at [Starlancer-mod-tools](https://github.co
 
 - **SLExtract's source (VC6/MFC) is the key asset** — a working description of the `.HOG` archive format. **Now fully reverse-engineered → see [`hog-format.md`](hog-format.md);** a modern cross-platform extractor lives at `tools\hog_extract.py` (validated by `tests/hog_selftest.py`).
 - ⚠️ **Extracting a HOG member does not give you a usable file.** The container is uncompressed, but **98% of `resource.hog`'s members are RefPack streams** — every model, mission, font, palette and stats table. Older tools that extract verbatim hand you a compressed blob. Use `hog_extract.py --decompress`. Table and caveats: [`hog-format.md`](hog-format.md).
+- **openreliant's `sltool`** (MPL-2.0) reads `.hog` + RefPack, `.shp` (OBJ export), `.spr` (indexed PNG), texture caches, `.fat` (WAV), `.fnt`, `.dte` (with a script disassembler) and the stats tables — the most complete single reader in the scene as of 2026-09-22; its format notes are CC BY-SA 4.0 (§4).
 - Tools are 24+ yrs old (Win9x/2000/XP) — may need compatibility mode / a VM / Wine for the InstallShield-packaged ones.
 - Starlancer uses **its own** HOG/SHP formats (not Freelancer's UTF), though the Freelancer/Librelancer ecosystem remains a reference for shared lineage.
 - FMV/movie container: still **UNCONFIRMED** (none of these tools touch it).
