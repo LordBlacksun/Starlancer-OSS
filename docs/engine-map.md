@@ -97,10 +97,28 @@ detail settings live here (the entry points for a widescreen/Hor+ patch).
 | `0x004C3830` | Surrender init | `SR init: Attempting to call SR i…` |
 | `0x004C3A60` | **Projection scale/centre writer** (sets `+0x166E`/`+0x1686` scale, `+0x167A`/`+0x1692` centre + 5 clip planes from width/height & the `sX=0.6`,`sY=0.8` 4:3 params) | called directly at the end of device init/reset (`0x004ACBE0`/`0x004AD0A0`/`0x004AD2E0`); **the Hor+ FOV patch point** (see `modern-fixes.md` §3 / `tools/sl_patch.py`) |
 | `0x004C9A40` | Texture cache | `Texture Cache already initialise…` |
-| `0x004CB9D0` / `0x004CBBD0` | Colour-cube (CCB) load / save | `SR CCB load/save …` |
+| `0x004CB9D0` / `0x004CBBD0` | **Colour-cube (CCB) load / save** — file layout below | `SR CCB load/save …` |
 | `0x004C98C0` | Texture attributes | `TEXTURE`, `USEPALETTE`, `ALPHACHANNEL`, `ERRDIFF` |
 | `0x004BFF40` | DirectDraw error decoder | full `DDERR_*` table |
 | `0x0042E9B0` | Device/gamma/transitions | `Device`, `gamma`, `Transitions` |
+
+**`.ccb` file layout** [verified 2026-09-22] — read from `SR_CCB_load` (`0x004CB9D0`); the field
+names are `SR_CCB_save`'s own assert strings (*"misses lut"*, *"misses palette"*, *"misses dac
+information"*). All five `.ccb` members of `resource.hog` — `palette`, `power`, `softpal`,
+`palette2`, `palette3` — are RefPack streams of 27,768–37,455 B expanding to **exactly 266,016 B**
+(`0x40F20`):
+
+| bytes | field |
+|---|---|
+| `0`–`3839` | **five 256-entry RGB palettes** (5 × 768), copied by two loops — starting at offset 0, with no leading header |
+| `3840`–`3871` | **~32 B of scalar fields**, read one at a time; the scalar at `3840` is the struct slot `SR_CCB_save` calls *dac information* |
+| `3872`–`266015` | the **64×64×64 colour cube**, one byte per cell (the loader advances `0x3C8` dwords before the bulk copy) |
+
+That the cube is a genuine RGB→index lookup rather than some other quarter-megabyte payload has
+independent support: sampling neighbouring cells at strides 1, 64 and 4096 — the three axes of a
+64³ raster — **89–97% of adjacent bytes differ by ≤ 3** in all five files, against effectively 0%
+for a pseudo-random control buffer. **Open:** whether `power` / `softpal` / `palette2-3` are
+alternative cubes (different lighting, the software renderer) is not checked.
 
 Config artifact: **`dmodes.bin`** enumerates render devices/resolutions. The display size lives in the
 device struct `DAT_00588730` (`+0x1666` width / `+0x166A` height); the **projection** scale/centre is
