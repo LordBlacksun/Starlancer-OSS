@@ -11,6 +11,11 @@
  *     them wrong makes the game unplayable), and
  *   - SYNTHESIZES the joystick from XInput, exposing SEPARATE triggers (lRx = LT,
  *     lRy = RT) plus both sticks, the D-pad as a POV hat, and the face/shoulder/stick
+ *
+ *     NOTE (2026-09-22): those separate trigger axes are INERT in Starlancer.
+ *     The game's DIJOYSTATE is at 0x588340 and it never reads lRx (0x58834C) or
+ *     lRy (0x588350) -- only lX, lY, lZ, lRz, rglSlider[0], rgdwPOV[0] and the
+ *     buttons. Rebinding the triggers to buttons is a v2 change. See README.md.
  *     buttons.
  *
  * The game's DInput usage was recovered by static RE (see docs/engine-map.md s7):

@@ -2,10 +2,19 @@
 
 Starlancer (2000) is **DirectInput-only** and predates **XInput**, so a modern
 Xbox-style pad only works through DInput's legacy path — which **merges the two
-triggers onto one shared Z axis** and gives no separate LT/RT. This is a tiny proxy
-`dinput.dll` that fixes that natively: it forwards keyboard + mouse to the real
-DirectInput untouched, and **synthesizes the joystick from XInput** with **separate
-triggers**, both sticks, the D-pad as a POV hat, and all the buttons.
+triggers onto one shared Z axis**. This is a tiny proxy `dinput.dll`: it forwards
+keyboard + mouse to the real DirectInput untouched, and **synthesizes the joystick
+from XInput** — both sticks, the D-pad as a POV hat, and all the buttons.
+
+> ⚠️ **Correction (2026-09-22): the separate triggers do nothing in-game.** v1 puts
+> LT on `lRx` and RT on `lRy`, but **the game never reads those axes.** Its
+> `DIJOYSTATE` buffer lives at `0x588340` (loaded into `ecx` at all three call sites
+> of the reader `0x4BD300`), and `lRx` (`0x58834C`) and `lRy` (`0x588350`) are
+> referenced **zero** times anywhere in the image. The game reads only `lX`, `lY`,
+> `lZ`, `lRz`, `rglSlider[0]`, `rgdwPOV[0]` and the button array. Rebinding the
+> triggers to buttons is a v2 change. Thanks to
+> [openreliant](https://github.com/vdmkenny/openreliant), whose SDL3 port maps gamepad
+> triggers to *fire* rather than to an axis, for prompting the check.
 
 It is a clean drop-in: no exe patch, no installer. Because Windows resolves a
 DLL next to the executable before the system copy (and `dinput.dll` is not a
@@ -16,7 +25,7 @@ DLL next to the executable before the system copy (and `dinput.dll` is not a
 2. Copy **`dinput.dll`** (and optionally **`xinput_shim.ini`**) into your Starlancer
    folder, **next to `lancer.exe`**.
 3. In the game's controller setup, calibrate/bind as usual — the pad shows up as
-   **"XInput Controller"** with separate triggers.
+   **"XInput Controller"**.
 
 ## Uninstall
 Delete `dinput.dll` (and `xinput_shim.ini`) from the game folder. Nothing else is
@@ -28,7 +37,7 @@ touched.
 | `lX`, `lY` | left stick |
 | `lRz` (twist) | right stick X *(TwistRightStickX)* |
 | `lZ` | right stick Y *(RightStickYToZ)* |
-| `lRx` = **LT**, `lRy` = **RT** | the **separate** triggers *(SeparateTriggers)* |
+| `lRx` = **LT**, `lRy` = **RT** | the triggers *(SeparateTriggers)* — ⚠️ **inert: the game never reads these axes, see above** |
 | POV hat | D-pad *(DPadAsPOV; else buttons 10–13)* |
 | Buttons 0–9 | A, B, X, Y, LB, RB, Back, Start, L3, R3 |
 
@@ -59,6 +68,9 @@ controller attached it must report a clean neutral state.
 - **No rumble.** The pad reports no force feedback, which routes the game onto its
   clean no-FF path (so the shim needs no effect objects). Translating the game's
   per-weapon `.frc` effects to XInput vibration is deferred to a later version.
+- **The triggers are inert.** LT/RT land on `lRx`/`lRy`, which the game does not read
+  (verified against the image 2026-09-22). Until v2 rebinds them to buttons, treat
+  LT/RT as unmapped.
 - Presents exactly **one** synthetic XInput pad (player 1). Real DInput joysticks are
   not enumerated while the shim is installed.
 - **In-game verification is yours.** This project never launches the game; the shim is

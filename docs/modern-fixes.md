@@ -290,8 +290,11 @@ reads the stick via `Poll` + `GetDeviceState(DIJOYSTATE)`; **keyboard and mouse 
 
 - **`tools/xinput_shim/` — a proxy `dinput.dll`** (drop it next to `lancer.exe`; DInput is loaded by
   name so the local copy wins). It **forwards keyboard + mouse to the real DirectInput untouched** and
-  **synthesizes the joystick from XInput** with **separate triggers** (`lRx`=LT, `lRy`=RT), both
-  sticks, the D-pad as a POV hat, and the buttons (mapping configurable via `xinput_shim.ini`).
+  **synthesizes the joystick from XInput** — both sticks, the D-pad as a POV hat, and the buttons
+  (mapping configurable via `xinput_shim.ini`). ⚠️ **Correction 2026-09-22: v1's "separate triggers"
+  (`lRx`=LT, `lRy`=RT) are inert** — the game's `DIJOYSTATE` is at `0x588340` and `lRx`/`lRy`
+  (`0x58834C`/`0x588350`) are referenced **zero** times in the image; it reads only `lX`, `lY`,
+  `lZ`, `lRz`, `rglSlider[0]`, `rgdwPOV[0]` and the buttons. Rebinding them to buttons is a v2 change.
   Reporting no force feedback steers the game onto its clean no-FF path, so v1 needs no effect objects.
   Built 32-bit with MSVC (`build.bat`); structurally verified with our own `test_host.exe` (drives the
   exact COM sequence with no pad → clean neutral state). **No-rumble v1**; translating the game's
