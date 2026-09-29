@@ -29,9 +29,12 @@ CLI:
     python slstudio_core.py scan <game folder> [--json]
 """
 
+import contextlib
 import io
 import json
 import os
+import shutil
+import stat
 import sys
 import time
 
@@ -239,6 +242,95 @@ def retire_manifest(exe_path):
     except OSError:
         return None
     return os.path.basename(retired)
+
+
+# ================================================================ safe writes ==
+def parse_resolution(width_text, height_text):
+    """A custom resolution typed as two numbers -> (width, height), or a ValueError that
+    says what is wrong. The range is sl_patch's own, so Studio refuses what it would."""
+    (min_w, min_h), (max_w, max_h) = sl_patch.WS_RANGE
+    try:
+        width, height = int(str(width_text).strip()), int(str(height_text).strip())
+    except ValueError:
+        raise ValueError("Width and height must be whole numbers.")
+    if not (min_w <= width <= max_w and min_h <= height <= max_h):
+        raise ValueError("%dx%d is outside the supported %dx%d to %dx%d."
+                         % (width, height, min_w, min_h, max_w, max_h))
+    return width, height
+
+
+def ensure_stock_backup(exe_path):
+    """The pristine Lancer.exe.bak that the patch step applies from. -> (bak_path, created).
+
+    An existing backup is used only while it is still a stock exe. Without one, the exe
+    is copied, but only if it is stock itself: a patched exe or a SafeDisc loader saved
+    under that name is a backup that lies, which Studio 1.2 made, because it checked the
+    size alone and a patched exe has the stock size. Raises ValueError with the evidence.
+    """
+    bak = exe_path + ".bak"
+    if os.path.exists(bak):
+        kind, evidence = classify_exe(bak)
+        if kind != "stock":
+            raise ValueError("%s is not a stock Lancer.exe (%s), so the fixes cannot be applied "
+                             "from it. Replace it with an original Lancer.exe."
+                             % (os.path.basename(bak), evidence))
+        return bak, False
+    kind, evidence = classify_exe(exe_path)
+    if kind != "stock":
+        raise ValueError("%s is %s (%s), so it cannot be kept as the pristine backup. "
+                         "Put an original Lancer.exe in its place first."
+                         % (os.path.basename(exe_path), kind, evidence))
+    shutil.copyfile(exe_path, bak)
+    return bak, True
+
+
+def make_writable(path):
+    """Clear a file's read-only flag, which files copied off a CD keep. Best effort: if it
+    cannot be cleared, the write that follows raises the PermissionError that says why."""
+    try:
+        os.chmod(path, os.stat(path).st_mode | stat.S_IWRITE)
+    except OSError:
+        pass
+
+
+def copy_writable(src, dst):
+    """shutil.copy2, arriving writable, and over a read-only copy from an earlier run."""
+    if os.path.exists(dst):
+        make_writable(dst)
+    shutil.copy2(src, dst)
+    make_writable(dst)
+    return dst
+
+
+# Blanking lives with the blanker (blank_boot_videos.py), which the command line uses too;
+# these are its functions, under the names Studio calls them by.
+blank_loose_logos = bootvid.blank_folder          # -> (blanked, skipped)
+restore_loose_logos = bootvid.restore_folder      # -> restored
+
+
+def run_capturing(fn, *a, **k):
+    """Run a tool function that prints, and may raise SystemExit on a guard.
+    -> (ok, return_code, captured_text).
+
+    A PermissionError is raised again rather than turned into text: it is the one error
+    with an answer a user can act on (clear the file's read-only flag, run elevated, or
+    use a copy outside Program Files), which the GUI's error handler gives.
+    """
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            rc = fn(*a, **k)
+        return True, rc, buf.getvalue()
+    except PermissionError:
+        raise
+    except SystemExit as e:
+        msg = buf.getvalue()
+        s = "" if e.code is None else str(e.code)
+        if s and s != "0":
+            msg = (msg + "\n" + s).strip()
+        return False, None, msg
+    except BaseException as e:                       # noqa: BLE001 - surfaced to the UI
+        return False, None, (buf.getvalue() + "\n" + repr(e)).strip()
 
 
 # ============================================================ install snapshot ==
@@ -522,6 +614,145 @@ def selftest():
         auto = sl_patch.PatchDefinition(id="fix-thing", summary="s", sites=[], build=None,
                                         verify_state=lambda pe, d: "stock")
         check(auto.label == "THING", "registry: a label is derived from the id when omitted")
+
+        # ------------------------------------------------------ resolution input
+        parse_res = globals().get("parse_resolution")
+        check(parse_res is not None, "resolution: parse_resolution exists")
+        if parse_res is not None:
+            check(parse_res("3440", " 1440 ") == (3440, 1440), "resolution: digits parse, spaces trimmed")
+            for w, h in (("abc", "1080"), ("1920.5", "1080"), ("0", "0"), ("1920", "0"), ("", "")):
+                try:
+                    parse_res(w, h)
+                    check(False, "resolution: %r x %r refused" % (w, h))
+                except ValueError as e:
+                    check(bool(str(e)), "resolution: %r x %r refused with a message" % (w, h))
+
+        # --------------------------------------------------- the pristine backup
+        # a test-only fix that reads as applied wherever its marker sits
+        marker = b"TESTPATCHED!"
+        probe = sl_patch.PatchDefinition(
+            id="zz-probe", summary="test-only", sites=[], build=None,
+            verify_state=lambda pe, d: "patched" if marker in bytes(d) else "stock")
+        stock_pe = fake_pe([".text", ".data"], sl_patch.EXPECT_SIZE)
+        patched_pe = stock_pe[:0x300] + marker + stock_pe[0x300 + len(marker):]
+        backup = globals().get("ensure_stock_backup")
+        check(backup is not None, "backup: ensure_stock_backup exists")
+        sl_patch.REGISTRY[probe.id] = probe
+        try:
+            if backup is not None:
+                def refused(exe):
+                    try:
+                        backup(exe)
+                    except ValueError:
+                        return True
+                    return False
+
+                bk = os.path.join(root, "bk")
+                os.mkdir(bk)
+                exe = os.path.join(bk, "Lancer.exe")
+                _mk(exe, stock_pe)
+                bak, created = backup(exe)
+                check(created and open(bak, "rb").read() == stock_pe,
+                      "backup: a stock exe is copied to Lancer.exe.bak")
+                check(backup(exe) == (bak, False), "backup: an existing stock backup is reused")
+                _mk(exe, patched_pe)
+                check(backup(exe) == (bak, False),
+                      "backup: a patched exe with a stock backup is fine (re-patch from the backup)")
+                _mk(bak, patched_pe)
+                check(refused(exe), "backup: a Lancer.exe.bak that is not stock is refused")
+                os.remove(bak)
+                check(refused(exe) and not os.path.exists(bak),
+                      "backup: a patched exe is never saved as the pristine backup")
+                _mk(exe, fake_pe([".text", "stxt774"], 249119))
+                check(refused(exe) and not os.path.exists(bak),
+                      "backup: nor is a SafeDisc loader")
+        finally:
+            del sl_patch.REGISTRY[probe.id]
+
+        # ------------------------------------------------ read-only files copy
+        import stat as _stat
+        copy_w = globals().get("copy_writable")
+        check(copy_w is not None, "copy: copy_writable exists")
+        if copy_w is not None:
+            src = os.path.join(root, "ro_src.hog")
+            dst = os.path.join(root, "ro_dst.hog")
+            _mk(src, b"BIGF data")
+            os.chmod(src, _stat.S_IREAD)
+            copy_w(src, dst)
+            check(os.access(dst, os.W_OK) and open(dst, "rb").read() == b"BIGF data",
+                  "copy: a read-only source arrives as a writable copy")
+            os.chmod(dst, _stat.S_IREAD)
+            copy_w(src, dst)
+            check(os.access(dst, os.W_OK), "copy: a read-only copy from an earlier run is overwritten")
+            os.chmod(src, _stat.S_IWRITE | _stat.S_IREAD)
+
+        # ------------------------------------------------ blanking loose logos
+        blank = globals().get("blank_loose_logos")
+        check(blank is not None, "logos: blank_loose_logos exists")
+        if blank is not None:
+            lg = os.path.join(root, "logos")
+            os.mkdir(lg)
+            movie = bootvid._synthetic_bik(3)
+            _mk(os.path.join(lg, "WARTY_.BIK"), movie)
+            done, skipped = blank(lg, ["warty_.bik", "new_nms.bik"])
+            warty = os.path.join(lg, "WARTY_.BIK")
+            check(done == ["WARTY_.BIK"] and skipped == [],
+                  "logos: the present logo is blanked, the absent one passed over quietly")
+            check(open(warty + ".orig", "rb").read() == movie, "logos: the true original is kept as .orig")
+            check(open(warty, "rb").read() == bootvid.first_frame_bik(movie),
+                  "logos: without a bundled clip, the logo becomes its own first frame")
+            # a folder a v1.2 run left with the zero-frame stub is repaired from the .orig
+            _mk(warty, b"BIKi" + b"\x00" * 44)
+            blank(lg, ["warty_.bik"])
+            check(open(warty, "rb").read() == bootvid.first_frame_bik(movie),
+                  "logos: re-blanking trims the .orig, not the blanked file")
+            check(open(warty + ".orig", "rb").read() == movie, "logos: the .orig is never overwritten")
+            blank(lg, ["warty_.bik"], bundled=b"BUNDLED")
+            check(open(warty, "rb").read() == b"BUNDLED", "logos: a bundled blank clip is used when given")
+            _mk(os.path.join(lg, "new_nms.bik"), b"not a movie")
+            done, skipped = blank(lg, ["new_nms.bik"])
+            check(done == [] and len(skipped) == 1 and "new_nms.bik" in skipped[0],
+                  "logos: a file that is not a movie is left alone and reported")
+            check(open(os.path.join(lg, "new_nms.bik"), "rb").read() == b"not a movie",
+                  "logos: ...untouched")
+            restore = globals().get("restore_loose_logos")
+            check(restore is not None, "logos: restore_loose_logos exists")
+            if restore is not None:
+                check(restore(lg, ["warty_.bik"]) == ["WARTY_.BIK"] and
+                      open(warty, "rb").read() == movie and not os.path.exists(warty + ".orig"),
+                      "logos: restore moves the original back")
+                _mk(os.path.join(lg, "Lancer.exe"), b"")
+                check(bootvid_status(lg)[1] == [],
+                      "logos: a restored logo no longer reads as blanked")
+
+        # ------------------------------------------ tool calls and their errors
+        capture = globals().get("run_capturing")
+        check(capture is not None, "capture: run_capturing exists")
+        if capture is not None:
+            def prints_five():
+                print("hello")
+                return 5
+
+            def refuses():
+                raise SystemExit("refusing: nope")
+
+            def breaks():
+                raise ValueError("boom")
+
+            def denied():
+                raise PermissionError(13, "Permission denied", "Lancer.exe")
+
+            ok, rc, text = capture(prints_five)
+            check(ok and rc == 5 and "hello" in text, "capture: output and return value kept")
+            ok, rc, text = capture(refuses)
+            check(not ok and "refusing: nope" in text, "capture: a tool's refusal is reported")
+            ok, rc, text = capture(breaks)
+            check(not ok and "boom" in text, "capture: an error is reported as text")
+            try:
+                capture(denied)
+                check(False, "capture: PermissionError reaches the caller")
+            except PermissionError:
+                check(True, "capture: PermissionError reaches the caller, for the actionable message")
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

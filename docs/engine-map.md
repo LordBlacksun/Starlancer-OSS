@@ -170,11 +170,13 @@ start: `warty_.bik` (**Warthog**), `new_dalogo_fs_uncmpr.bik` (**Digital Anvil**
 `new_intro.bik`. In a **retail install** the three logos are **loose `.bik` in the game folder**
 (from `LANCER.CAB`) — verified **not** in `resource.hog` / `CD1.HOG` / `CD2.HOG` (only `new_intro.bik`
 is HOG-resident, in `CD2.HOG`); the `0x800000` Bink resource flag in the open call notwithstanding,
-the clips resolve to the loose files. **A missing or zero-frame movie is tolerated** — `BinkOpen`
-returns NULL (logged, *not* fatal) or the end-of-video flag is set on frame 0, so the play loop exits
-immediately; any keypress aborts too. This is why the blank-Bink skip works — replace the loose logo
-files with a blank (esc0rtd3w's `blank.bik`); `tools/blank_boot_videos.py` is the fallback for HOG-
-resident logos. (Logo verification 2026-06-12.) See [`modern-fixes.md`](modern-fixes.md) §1.
+the clips resolve to the loose files. **A missing or zero-frame movie reads as tolerated** —
+`BinkOpen` returns NULL (logged, *not* fatal) or the end-of-video flag is set on frame 0, so the play
+loop exits immediately; any keypress aborts too *(read statically, never observed)*. The blank-Bink
+skip replaces the three loose logo files with a blank (esc0rtd3w's `blank.bik`), or
+`tools/blank_boot_videos.py blank <game folder>` cuts each to its own first frame, a real one-frame
+movie that needs no such tolerance. No startup movie is HOG-resident. (Logo verification 2026-06-12;
+every retail HOG rechecked 2026-09-29.) See [`modern-fixes.md`](modern-fixes.md) §1.
 
 ## 7. Input — DirectInput + force feedback
 

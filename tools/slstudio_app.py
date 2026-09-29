@@ -11,7 +11,7 @@ Sections:
     STATS EDITOR    edit ship/gun/missile stats   -> slstats.py
     HOG TOOLS       list/extract/pack/edit .HOG   -> hog_extract.py + hog_pack.py
     CONTROLLER      install the XInput shim       -> xinput_shim/ (file copy only)
-    BOOT VIDEOS     blank the startup logos       -> blank_boot_videos.py + hog_pack.py
+    BOOT VIDEOS     blank the startup logos       -> blank_boot_videos.py (game folder)
 
 SAFETY (non-negotiable): like every tool in this project, Starlancer Studio reads
 and patches LOCAL COPIES only. It NEVER launches the game (no subprocess / os.system
@@ -25,10 +25,8 @@ Dep:    customtkinter   (pure Python; the only third-party runtime dependency)
 """
 import os
 import sys
-import io
 import json
 import shutil
-import contextlib
 import threading
 import queue
 import re
@@ -207,22 +205,9 @@ def ask_dir(title):
 
 
 # ===================================================== tool-call plumbing ========
-def run_capturing(fn, *a, **k):
-    """Run a tool fn that prints to stdout and may raise SystemExit on a guard.
-    Returns (ok, return_code, captured_text)."""
-    buf = io.StringIO()
-    try:
-        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-            rc = fn(*a, **k)
-        return True, rc, buf.getvalue()
-    except SystemExit as e:
-        msg = buf.getvalue()
-        s = "" if e.code is None else str(e.code)
-        if s and s != "0":
-            msg = (msg + "\n" + s).strip()
-        return False, None, msg
-    except BaseException as e:                       # noqa: BLE001 - surfaced to UI
-        return False, None, (buf.getvalue() + "\n" + repr(e)).strip()
+# (ok, return_code, captured_text) from a tool call; a PermissionError passes through to
+# default_error's actionable message. Tested in slstudio_core's self-test.
+run_capturing = core.run_capturing
 
 
 # ======================================================= shared game context ====
@@ -579,6 +564,8 @@ class Section(ctk.CTkFrame):
                             pass
                     elif kind == "fail":
                         self.log.line("✗ %s — %s" % (item[1], item[2]), "err")
+                        if isinstance(item[2], PermissionError):
+                            self.default_error(item[2])     # the actionable message
                     elif kind == "done":
                         self._end_steps(item[1], on_done)
                         return
@@ -802,11 +789,12 @@ class PatcherFrame(Section):
     def _params_for(self, defn):
         """Parameters for one fix. Only needs_params fixes take any; today that is
         widescreen and its width/height, read from the preset menu or the custom
-        entries. sl_patch validates them, so this only has to read the widgets."""
+        entries. Custom entries raise ValueError with a message the caller shows."""
         if not defn.needs_params:
             return {}
         if self.res_var.get().startswith("Custom"):
-            return dict(width=int(self.cw.get()), height=int(self.ch.get()))
+            w, h = core.parse_resolution(self.cw.get(), self.ch.get())
+            return dict(width=w, height=h)
         w, h = self._res_from_preset()
         return dict(width=w, height=h)
 
@@ -841,7 +829,11 @@ class PatcherFrame(Section):
         if not io_p:
             return
         ip, op = io_p
-        sel = self._selections()
+        try:
+            sel = self._selections()
+        except ValueError as e:                     # a Custom resolution that isn't one
+            messagebox.showerror("Resolution", str(e))
+            return
         if not sel:
             messagebox.showwarning("Nothing selected", "Tick at least one fix.")
             return
@@ -1236,10 +1228,12 @@ class StatsFrame(Section):
         if i is None:
             messagebox.showinfo("No record", "Select a record in the table first.")
             return
+        # every field is checked before any is written, so a bad one cannot leave the
+        # record half-applied
         try:
-            vals = {off: float(var.get()) for off, var in self.entries.items()}
-        except ValueError:
-            messagebox.showerror("Bad value", "All fields must be numbers.")
+            vals = {off: slstats.parse_value(var.get()) for off, var in self.entries.items()}
+        except ValueError as e:
+            messagebox.showerror("Bad value", "%s\n\nEvery field must be a finite number." % e)
             return
         for off, v in vals.items():
             slstats.set_stat(self.data, i, off, v)
@@ -1794,10 +1788,8 @@ def _find_blank_bik():
     """Locate a real black blank.bik (esc0rtd3w's blank-intro-videos clip) IF the user supplied
     one: bundled inside the frozen exe (sys._MEIPASS/assets), or dropped into tools/assets/ for
     source runs. The clip is third-party and never ships in this repo (*.bik is git-ignored), so on
-    a fresh clone this returns None and _blank_bytes() falls back to the project's own generated
-    zero-frame clip (blank_boot_videos.make_blank_bik, version-matched to the clip being replaced)
-    -- the RE-backed method described in docs/modern-fixes.md s1. Either way the Boot Videos log
-    says which one is in use."""
+    a fresh clone this returns None and each logo is cut to its own first frame instead
+    (blank_boot_videos.first_frame_bik). Either way the Boot Videos log says which is in use."""
     here = os.path.dirname(os.path.abspath(__file__))
     for p in (resource_path(os.path.join("assets", "blank.bik")),
               os.path.join(here, "assets", "blank.bik")):
@@ -1806,9 +1798,9 @@ def _find_blank_bik():
     return None
 
 
-def _blank_bytes(ver=b"i"):
-    """Replacement bytes for a blanked clip: the real black blank.bik when available
-    (the verified method), else a version-matched zero-frame stub. -> (bytes, label)."""
+def _bundled_blank():
+    """The real black blank.bik's bytes when available (the verified method), else None,
+    meaning each clip is cut to its own first frame. -> (bytes|None, label)."""
     p = _find_blank_bik()
     if p:
         try:
@@ -1816,7 +1808,7 @@ def _blank_bytes(ver=b"i"):
                 return f.read(), os.path.basename(p)
         except Exception:
             pass
-    return bootvid.make_blank_bik(ver), "generated stub"
+    return None, "each clip's own first frame"
 
 
 # Retail truth (docs/modern-fixes.md s1, verified 2026-06-12): the three startup logos are LOOSE
@@ -1824,14 +1816,13 @@ def _blank_bytes(ver=b"i"):
 # intro new_intro.bik lives in a HOG (CD2.HOG). So the primary method is loose-file replacement.
 LOOSE_LOGOS = list(bootvid.LOGO_VIDEOS)       # warty_ / new_dalogo / new_nms
 LOOSE_SPLASH = list(bootvid.SPLASH_VIDEOS)    # splash to mm.bik
-_LOOSE_ALL = {n.lower() for n in LOOSE_LOGOS + LOOSE_SPLASH}
 
 
 class BootVideoFrame(Section):
     TITLE = "BOOT VIDEOS"
-    SUB = ("Skip the startup branding logos. On a retail install the logos are LOOSE .bik files in "
-           "the game folder — blanked in place with a black blank.bik if one is bundled, else with a "
-           "generated zero-frame clip (.orig backups kept either way).")
+    SUB = ("Skip the startup branding logos. They are LOOSE .bik files in the game folder, never "
+           "inside a HOG, and are blanked in place: with a black blank.bik if one is bundled, else "
+           "each cut to its own first frame (.orig backups kept either way).")
     GLYPH = "▷"
 
     def build(self):
@@ -1839,27 +1830,23 @@ class BootVideoFrame(Section):
         b.grid_columnconfigure(0, weight=1)
         b.grid_rowconfigure(0, weight=1)
 
-        tv = ctk.CTkTabview(b, fg_color=BG1, segmented_button_fg_color=BG2,
-                            segmented_button_selected_color=CYAN_D,
-                            segmented_button_selected_hover_color=CYAN,
-                            segmented_button_unselected_color=BG2,
-                            segmented_button_unselected_hover_color=BG3,
-                            text_color=TXT, corner_radius=4, border_width=1, border_color=LINE2)
-        tv.grid(row=0, column=0, sticky="nsew")
-        tv.add("GAME FOLDER")
-        tv.add("HOG ARCHIVE")
-        self._tab_folder(tv.tab("GAME FOLDER"))
-        self._tab_hog(tv.tab("HOG ARCHIVE"))
+        # One place only: the startup movies are loose files in the game folder, never inside
+        # a HOG. (Studio 1.2 also offered a HOG tab, built on the belief that they were.)
+        panel = ctk.CTkFrame(b, fg_color=BG1, corner_radius=4, border_width=1, border_color=LINE2)
+        panel.grid(row=0, column=0, sticky="nsew")
+        panel.grid_columnconfigure(0, weight=1)
+        panel.grid_rowconfigure(0, weight=1)
+        inner = ctk.CTkFrame(panel, fg_color="transparent")
+        inner.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        self._tab_folder(inner)
 
         self.log = LogPanel(b, height=104)
         self.log.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         bp = _find_blank_bik()
-        self.log.line("blank.bik: " + (bp if bp else "NOT FOUND — will fall back to a generated stub"),
-                      "dim" if bp else "warn")
-        self.hog = None
-        self.toc = None
+        self.log.line("blank.bik: " + (bp if bp else "not bundled; each clip becomes its own first frame"),
+                      "dim")
 
-    # ---------------- primary: loose .bik in the game folder ----------------
+    # ---------------- the loose startup movies in the game folder ----------------
     def _tab_folder(self, t):
         t.grid_columnconfigure(0, weight=1)
         t.grid_rowconfigure(2, weight=1)
@@ -1881,7 +1868,7 @@ class BootVideoFrame(Section):
                         font=F["small"], text_color=TXT_D, checkbox_width=18, checkbox_height=18,
                         corner_radius=3, fg_color=CYAN_D, hover_color=CYAN, border_color=LINE2,
                         command=self._scan_folder).pack(side="left", padx=4)
-        ctk.CTkLabel(opt, text="(the campaign intro new_intro.bik is in CD2.HOG — use the HOG tab)",
+        ctk.CTkLabel(opt, text="(the logos: WARTY_.bik, NEW_DALOGO_FS_UNCMPR.bik, NEW_NMS.bik)",
                      font=F["tiny"], text_color=TXT_DD).pack(side="left", padx=8)
 
         self.gf_list = ctk.CTkScrollableFrame(t, fg_color=BG0, corner_radius=3,
@@ -1954,27 +1941,17 @@ class BootVideoFrame(Section):
             messagebox.showwarning("No folder", "Pick your Starlancer folder first.")
             return
         targets = self._loose_targets()
-        blob, srclabel = _blank_bytes()
+        blob, srclabel = _bundled_blank()
         self.log.rule("BLANK (loose files)")
 
         def work():
-            by_lower = {f.lower(): f for f in os.listdir(folder)}
-            done_n = []
-            for tname in targets:
-                actual = by_lower.get(tname)
-                if not actual:
-                    continue
-                full = os.path.join(folder, actual)
-                bak = full + ".orig"
-                if not os.path.exists(bak):          # keep the first (true) original
-                    shutil.copyfile(full, bak)
-                with open(full, "wb") as f:
-                    f.write(blob)
-                done_n.append(actual)
-            return done_n, srclabel
+            names, skipped = core.blank_loose_logos(folder, targets, blob)
+            return names, skipped, srclabel
 
         def done(res):
-            names, src = res
+            names, skipped, src = res
+            for s in skipped:
+                self.log.line("left alone: " + s, "warn")
             if not names:
                 self.status("NO CLIPS", "warn")
                 self.log.line("none of the target logos are in that folder.", "warn")
@@ -1995,15 +1972,8 @@ class BootVideoFrame(Section):
         self.log.rule("RESTORE")
 
         def work():
-            restored = []
-            for f in os.listdir(folder):
-                if not f.lower().endswith(".orig"):
-                    continue
-                target_name = f[:-5]                 # strip ".orig"
-                if target_name.lower() in _LOOSE_ALL:
-                    shutil.copyfile(os.path.join(folder, f), os.path.join(folder, target_name))
-                    restored.append(target_name)
-            return restored
+            # moves each .orig back, so nothing is left to read as "blanked" afterwards
+            return core.restore_loose_logos(folder, LOOSE_LOGOS + LOOSE_SPLASH)
 
         def done(restored):
             self.log.line("restored: " + (", ".join(restored) if restored else "(no .orig backups found)"),
@@ -2012,123 +1982,6 @@ class BootVideoFrame(Section):
             self._scan_folder()
 
         self.run_async(work, done, busy="RESTORING")
-
-    # ---------------- fallback: blank inside a .HOG (intro / HOG-bundled builds) ----------------
-    def _tab_hog(self, t):
-        t.grid_columnconfigure(0, weight=1)
-        t.grid_rowconfigure(2, weight=1)
-        ctk.CTkLabel(t, text="For the campaign intro new_intro.bik (CD2.HOG) or unusual builds that keep "
-                     "logos inside a HOG. Writes a NEW archive — never edits the original.",
-                     font=F["tiny"], text_color=TXT_DD, justify="left", anchor="w",
-                     wraplength=820).grid(row=0, column=0, sticky="ew", pady=(2, 8))
-        bar = ctk.CTkFrame(t, fg_color="transparent")
-        bar.grid(row=1, column=0, sticky="ew")
-        self.b_open_h = ghost_button(bar, "OPEN .hog…", self._open_hog, width=130)
-        self.b_open_h.pack(side="left")
-        self.inc_splash_h = tk.BooleanVar(value=False)
-        self.inc_intro_h = tk.BooleanVar(value=True)
-        ctk.CTkCheckBox(bar, text="splash", variable=self.inc_splash_h, font=F["small"], text_color=TXT_D,
-                        checkbox_width=18, checkbox_height=18, corner_radius=3, fg_color=CYAN_D,
-                        hover_color=CYAN, border_color=LINE2, command=self._refresh_hog).pack(side="left", padx=(12, 6))
-        ctk.CTkCheckBox(bar, text="intro", variable=self.inc_intro_h, font=F["small"], text_color=TXT_D,
-                        checkbox_width=18, checkbox_height=18, corner_radius=3, fg_color=CYAN_D,
-                        hover_color=CYAN, border_color=LINE2, command=self._refresh_hog).pack(side="left", padx=6)
-        self.b_write_h = primary_button(bar, "WRITE BLANKED .hog…", self._write_hog, width=190)
-        self.b_write_h.pack(side="right")
-        self.b_write_h.configure(state="disabled")
-
-        self.hog_list = ctk.CTkScrollableFrame(t, fg_color=BG0, corner_radius=3,
-                                               label_text="  CLIPS IN ARCHIVE", label_font=F["mono_sb"],
-                                               label_fg_color=BG2, label_text_color=TXT_D)
-        self.hog_list.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
-
-    def _open_hog(self):
-        p = ask_open("Open a .hog (CD2.HOG for the intro)",
-                     [("HOG archive", "*.hog"), ("All files", "*.*")])
-        if not p:
-            return
-        try:
-            raw = open(p, "rb").read()
-            _sz, _num, _start, self.toc = hog_extract.parse(raw)
-        except Exception as e:
-            self.default_error(e)
-            return
-        self.hog = p
-        self.b_write_h.configure(state="normal")
-        self.log.line("opened " + os.path.basename(p), "hi")
-        self._refresh_hog()
-
-    def _refresh_hog(self):
-        for w in self.hog_list.winfo_children():
-            w.destroy()
-        if not self.toc:
-            return
-        want = bootvid.boot_targets(include_splash=True, include_intro=True)
-        active = bootvid.boot_targets(self.inc_splash_h.get(), self.inc_intro_h.get())
-        found = 0
-        for name, off, length in self.toc:
-            bn = bootvid.basename(name)
-            if bn not in want:
-                continue
-            found += 1
-            on = bn in active
-            row = ctk.CTkFrame(self.hog_list, fg_color=BG2 if on else "transparent", corner_radius=3)
-            row.pack(fill="x", padx=2, pady=2)
-            LED(row, color=AMBER if on else TXT_DD, bg=BG2 if on else BG0).pack(side="left", padx=6, pady=4)
-            ctk.CTkLabel(row, text=name, font=F["mono_sm"], text_color=TXT if on else TXT_D,
-                         width=240, anchor="w").pack(side="left")
-            ctk.CTkLabel(row, text=bootvid.role_of(bn), font=F["tiny"],
-                         text_color=AMBER if on else TXT_DD).pack(side="left", padx=8)
-        if not found:
-            ctk.CTkLabel(self.hog_list, text="No startup clips in this HOG. The retail logos are loose "
-                         "files — use the GAME FOLDER tab.", font=F["small"], text_color=TXT_DD,
-                         wraplength=620).pack(pady=16)
-            self.status("NONE IN HOG", "warn")
-        else:
-            self.status("%d IN HOG" % found, "ok")
-
-    def _write_hog(self):
-        if not self.hog:
-            return
-        out = ask_save("Save blanked .hog", ".hog",
-                       initialfile=os.path.splitext(os.path.basename(self.hog))[0] + "_noboot.hog",
-                       filetypes=[("HOG archive", "*.hog")])
-        if not out:
-            return
-        inc_s, inc_i = self.inc_splash_h.get(), self.inc_intro_h.get()
-        self.log.rule("BLANK (HOG)")
-
-        def work():
-            entries = hog_pack.read_entries(self.hog)
-            targets = bootvid.boot_targets(inc_s, inc_i)
-            changed, new = [], []
-            for name, data in entries:
-                if bootvid.basename(name) in targets:
-                    ver = data[3:4] if data[:3] == b"BIK" else b"i"
-                    blob, _ = _blank_bytes(ver)
-                    changed.append((name, len(data), len(blob)))
-                    new.append((name, blob))
-                else:
-                    new.append((name, data))
-            if not changed:
-                return None
-            blob = hog_pack.build(new)
-            with open(out, "wb") as f:
-                f.write(blob)
-            return changed, len(new), len(blob)
-
-        def done(res):
-            if res is None:
-                self.status("NO CLIPS", "warn")
-                self.log.line("no startup clips in this HOG (logos are usually loose).", "warn")
-                return
-            changed, n, size = res
-            for name, old, new in changed:
-                self.log.line("blanked %-28s %s -> %s B" % (name, format(old, ","), format(new, ",")), "ok")
-            self.log.line("wrote %s (%d files, %s bytes)" % (out, n, format(size, ",")), "ok")
-            self.status("BLANKED %d" % len(changed), "ok")
-
-        self.run_async(work, done, busy="WRITING HOG")
 
 
 # ================================================================ boot reveal ===
@@ -2342,13 +2195,13 @@ class DashboardFrame(Section):
         exe = self.app.game.exe
         self.folder_var.set(folder or "(no folder selected)")
         if exe and os.path.exists(exe):
-            sz = os.path.getsize(exe)
-            stock = (sz == sl_patch.EXPECT_SIZE)
-            self.size_led.set(GREEN if stock else AMBER)
-            self.size_lbl.configure(
-                text="Lancer.exe · %s bytes · %s" % (
-                    format(sz, ","), "analyzed stock build" if stock else "loader or modified build"),
-                text_color=GREEN if stock else AMBER)
+            # the core's verdict, with its evidence: the size alone cannot tell a patched
+            # exe from a stock one
+            kind, evidence = core.classify_exe(exe)
+            good = kind in ("stock", "patched")
+            self.size_led.set(GREEN if good else AMBER)
+            self.size_lbl.configure(text="Lancer.exe · %s · %s" % (kind, evidence),
+                                    text_color=GREEN if good else AMBER)
         else:
             self.size_led.set(TXT_DD)
             self.size_lbl.configure(text="no Lancer.exe found in this folder", text_color=TXT_DD)
@@ -2486,10 +2339,11 @@ class DashboardFrame(Section):
 
         def work():
             out = []
-            bak = exe + ".bak"
-            if not os.path.exists(bak):
-                shutil.copyfile(exe, bak)
+            # refuses, with the evidence, rather than keep a patched exe as the "pristine" copy
+            bak, created = core.ensure_stock_backup(exe)
+            if created:
                 out.append(("backed up Lancer.exe → Lancer.exe.bak", "ok"))
+            core.make_writable(exe)                  # a CD copy is often read-only
             sel = recommended_selections(w, h)
             ok, _rc, text = run_capturing(sl_patch.apply, bak, exe, sel, force=False)
             if not ok:
@@ -2508,20 +2362,8 @@ class DashboardFrame(Section):
             else:
                 out.append(("bundled dinput.dll missing — controller shim skipped", "warn"))
 
-            blob, _src = _blank_bytes()
-            by_lower = {f.lower(): f for f in os.listdir(folder)}
-            blanked = []
-            for name in LOOSE_LOGOS:
-                actual = by_lower.get(name.lower())
-                if not actual:
-                    continue
-                full = os.path.join(folder, actual)
-                bk = full + ".orig"
-                if not os.path.exists(bk):
-                    shutil.copyfile(full, bk)
-                with open(full, "wb") as f:
-                    f.write(blob)
-                blanked.append(actual)
+            blanked, skipped = core.blank_loose_logos(folder, LOOSE_LOGOS, _bundled_blank()[0])
+            out += [("left alone: " + s, "warn") for s in skipped]
             out.append(("blanked %d boot logo(s)%s" % (
                 len(blanked), (": " + ", ".join(blanked)) if blanked else ""),
                 "ok" if blanked else "warn"))
@@ -2634,7 +2476,9 @@ class DeployFrame(Section):
             outdir = dst if rel == "." else os.path.join(dst, rel)
             os.makedirs(outdir, exist_ok=True)
             for f in files:
-                shutil.copy2(os.path.join(dp, f), os.path.join(outdir, f))
+                # writable on arrival: CD copies are often read-only, which would stop the
+                # patch step here and a re-run over this folder
+                core.copy_writable(os.path.join(dp, f), os.path.join(outdir, f))
                 n += 1
         return n
 
@@ -2694,21 +2538,20 @@ class DeployFrame(Section):
     # ---- the pipeline -------------------------------------------------------
     def _build_steps(self, src, dst, o):
         def s_validate():
-            exe = os.path.join(src, next(f for f in os.listdir(src) if f.lower() == "lancer.exe"))
-            sz = os.path.getsize(exe)
-            if sz != sl_patch.EXPECT_SIZE:
-                return ("source Lancer.exe is %s bytes (not the analyzed %s) — fixes may not verify"
-                        % (format(sz, ","), format(sl_patch.EXPECT_SIZE, ",")), "warn")
-            return "source validated: stock Lancer.exe (%s bytes)" % format(sz, ",")
+            # a patched exe has the stock size, so the size alone proves nothing; stop here,
+            # before a gigabyte of copying that the patch step would then refuse
+            kind, evidence = core.classify_exe(core.find_exe(src))
+            if kind != "stock":
+                raise RuntimeError("the source Lancer.exe is %s (%s). Point the wizard at an "
+                                   "install with an original Lancer.exe." % (kind, evidence))
+            return "source validated: stock Lancer.exe (%s)" % evidence
 
         def s_copy():
             return "copied %d files → %s" % (self._copytree(src, dst), dst)
 
         def s_patch():
-            exe = os.path.join(dst, next(f for f in os.listdir(dst) if f.lower() == "lancer.exe"))
-            bak = exe + ".bak"
-            if not os.path.exists(bak):
-                shutil.copyfile(exe, bak)
+            exe = core.find_exe(dst)
+            bak, _created = core.ensure_stock_backup(exe)
             sel = recommended_selections(o["w"], o["h"], include_params=o["do_ws"])
             ok, _rc, text = run_capturing(sl_patch.apply, bak, exe, sel, force=False)
             if not ok:
@@ -2726,20 +2569,10 @@ class DeployFrame(Section):
             return "installed XInput shim (dinput.dll + xinput_shim.ini)"
 
         def s_logos():
-            blob, _src = _blank_bytes()
-            by_lower = {f.lower(): f for f in os.listdir(dst)}
-            done = []
-            for name in LOOSE_LOGOS:
-                actual = by_lower.get(name.lower())
-                if not actual:
-                    continue
-                full = os.path.join(dst, actual)
-                bk = full + ".orig"
-                if not os.path.exists(bk):
-                    shutil.copyfile(full, bk)
-                with open(full, "wb") as f:
-                    f.write(blob)
-                done.append(actual)
+            done, skipped = core.blank_loose_logos(dst, LOOSE_LOGOS, _bundled_blank()[0])
+            if skipped:
+                return ("blanked %d boot logo(s); left alone: %s" % (len(done), "; ".join(skipped)),
+                        "warn")
             return ("blanked %d boot logo(s)" % len(done) if done
                     else ("no loose logos found to blank", "warn"))
 
@@ -2785,7 +2618,7 @@ class DeployFrame(Section):
         if not any(f.lower() == "lancer.exe" for f in os.listdir(src)):
             messagebox.showerror("No Lancer.exe", "The SOURCE folder doesn't contain Lancer.exe.")
             return
-        a_src, a_dst = os.path.abspath(src), os.path.abspath(dst)
+        a_src, a_dst = (os.path.normcase(os.path.abspath(p)) for p in (src, dst))
         if a_dst == a_src or a_dst.startswith(a_src + os.sep):
             messagebox.showerror("Bad output", "OUTPUT must be a separate folder, not SOURCE or inside it.")
             return
