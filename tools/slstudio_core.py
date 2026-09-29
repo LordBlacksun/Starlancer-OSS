@@ -142,12 +142,19 @@ def classify_exe(exe_path, states=None):
                        % (format(size, ","), format(sl_patch.EXPECT_SIZE, ",")))
 
 
+# Every build of the shim reads its settings from this file, so the name is in the DLL's own
+# bytes, and in no other program's dinput.dll (Windows' own has no such string).
+SHIM_MARKER = b"xinput_shim.ini"
+
+
 def shim_status(folder, reference_dll=None):
     """XInput-shim install state. -> (state, has_backup); state in ours/other/absent.
 
-    `reference_dll` is the bundled proxy to compare against. The GUI resolves it
-    through PyInstaller's _MEIPASS, which is why it is passed in rather than
-    looked up here: this module must stay importable outside the frozen app.
+    'ours' is the bundled proxy, `reference_dll`, or any other build of the shim, which
+    names the ini it reads (SHIM_MARKER): a shim an older Studio installed is still ours.
+    The GUI resolves `reference_dll` through PyInstaller's _MEIPASS, which is why it is
+    passed in rather than looked up here: this module must stay importable outside the
+    frozen app.
     """
     if not folder or not os.path.isdir(folder):
         return "absent", False
@@ -156,14 +163,75 @@ def shim_status(folder, reference_dll=None):
     if not os.path.exists(dest):
         return "absent", has_backup
     try:
-        if reference_dll and os.path.exists(reference_dll) and \
-                os.path.getsize(reference_dll) == os.path.getsize(dest):
-            with io.open(reference_dll, "rb") as a, io.open(dest, "rb") as b:
-                if a.read() == b.read():
+        with io.open(dest, "rb") as f:
+            data = f.read()
+        if reference_dll and os.path.exists(reference_dll):
+            with io.open(reference_dll, "rb") as f:
+                if f.read() == data:
                     return "ours", has_backup
+        if SHIM_MARKER in data:
+            return "ours", has_backup
     except OSError:
         pass
     return "other", has_backup
+
+
+def install_shim(folder, bundled_dll, ini_text=None):
+    """Install the XInput shim in `folder`: `bundled_dll` as dinput.dll, and `ini_text`,
+    when given, as xinput_shim.ini. -> whether a dinput.dll was backed up.
+
+    A dinput.dll already there is kept as dinput.dll.xinput-bak, once, and only when it is
+    some other program's. Studio 1.2 backed up whatever it found, so installing twice kept
+    its own shim as "the original", and restoring put the shim back.
+    """
+    dest = os.path.join(folder, "dinput.dll")
+    bak = dest + ".xinput-bak"
+    backed = False
+    if os.path.exists(dest):
+        if not os.path.exists(bak) and shim_status(folder, bundled_dll)[0] == "other":
+            shutil.copyfile(dest, bak)
+            backed = True
+        make_writable(dest)
+    shutil.copyfile(bundled_dll, dest)
+    if ini_text is not None:
+        ini = os.path.join(folder, "xinput_shim.ini")
+        if os.path.exists(ini):
+            make_writable(ini)
+        with io.open(ini, "w", encoding="utf-8") as f:
+            f.write(ini_text)
+    return backed
+
+
+def uninstall_shim(folder, bundled_dll=None):
+    """Remove the XInput shim from `folder`: dinput.dll and xinput_shim.ini. -> the names removed.
+
+    Raises ValueError, removing nothing, where the dinput.dll there is not the shim
+    (shim_status): another program's is never deleted. A backup stays for the user to
+    restore (restore_shim_backup).
+    """
+    dest = os.path.join(folder, "dinput.dll")
+    if os.path.exists(dest) and shim_status(folder, bundled_dll)[0] != "ours":
+        raise ValueError("The dinput.dll in this folder is not the XInput shim, so it was left "
+                         "in place, and so was everything else. Remove it yourself if you mean to.")
+    removed = []
+    for name in ("dinput.dll", "xinput_shim.ini"):
+        path = os.path.join(folder, name)
+        if os.path.exists(path):
+            make_writable(path)
+            os.remove(path)
+            removed.append(name)
+    return removed
+
+
+def restore_shim_backup(folder):
+    """Put dinput.dll.xinput-bak back as dinput.dll, where there is none now.
+    -> whether one was restored."""
+    dest = os.path.join(folder, "dinput.dll")
+    bak = dest + ".xinput-bak"
+    if not os.path.exists(bak) or os.path.exists(dest):
+        return False
+    os.replace(bak, dest)
+    return True
 
 
 def bootvid_status(folder):
@@ -300,6 +368,30 @@ def copy_writable(src, dst):
     shutil.copy2(src, dst)
     make_writable(dst)
     return dst
+
+
+def setup_notes(applied, skipped, wrapper=False):
+    """READ-ME-RUN-ME.txt for a staged build, from what its steps reported: `applied` and
+    `skipped` are lines, a skipped one with its reason, and `wrapper` whether dgVoodoo2 was
+    copied in. Studio 1.2 wrote the notes from the options ticked, so a step that was
+    skipped, such as a shim the build did not bundle, was still listed as applied.
+    """
+    lines = ["STARLANCER — READY-TO-PLAY BUILD",
+             "Assembled by Starlancer Studio. The game was NOT launched during assembly.",
+             "", "Applied:"] + ["  - " + line for line in applied]
+    if skipped:
+        lines += ["", "Skipped:"] + ["  - " + line for line in skipped]
+    lines += ["", "To run (do these yourself — Starlancer Studio never launches the game):",
+              "  1. Enable the legacy DirectPlay Windows feature if you want multiplayer."]
+    step = 2
+    if wrapper:
+        lines.append("  %d. (Optional) Run dgVoodooCpl.exe here to tune the wrapper, then close it."
+                     % step)
+        step += 1
+    lines += ["  %d. Start Lancer.exe." % step, "",
+              "Undo the EXE fixes:  sl_patch.py --verify Lancer.exe   |   --revert Lancer.exe out.exe",
+              "A pristine Lancer.exe.bak is kept next to the patched exe."]
+    return "\n".join(lines) + "\n"
 
 
 # Blanking lives with the blanker (blank_boot_videos.py), which the command line uses too;
@@ -724,6 +816,67 @@ def selftest():
                 _mk(os.path.join(lg, "Lancer.exe"), b"")
                 check(bootvid_status(lg)[1] == [],
                       "logos: a restored logo no longer reads as blanked")
+
+        # ------------------------------------------------------ the XInput shim
+        sh = os.path.join(root, "shim")
+        os.mkdir(sh)
+        bundled = os.path.join(root, "bundled_dinput.dll")
+        _mk(bundled, b"MZ ours, new build; reads xinput_shim.ini")
+        older = b"MZ ours, an older build; reads xinput_shim.ini"
+        foreign = b"MZ somebody else's dinput"
+        dll = os.path.join(sh, "dinput.dll")
+        bak = dll + ".xinput-bak"
+        _mk(dll, older)
+        check(shim_status(sh, bundled)[0] == "ours",
+              "shim: an older build of ours is still ours, by the ini name it reads")
+        install = globals().get("install_shim")
+        uninstall = globals().get("uninstall_shim")
+        restore_bak = globals().get("restore_shim_backup")
+        check(install is not None and uninstall is not None and restore_bak is not None,
+              "shim: install_shim, uninstall_shim and restore_shim_backup exist")
+        if install is not None and uninstall is not None and restore_bak is not None:
+            check(install(sh, bundled, "[shim]\n") is False and not os.path.exists(bak),
+                  "shim: reinstalling over our own shim keeps no 'original' of it")
+            check(open(dll, "rb").read() == open(bundled, "rb").read() and
+                  open(os.path.join(sh, "xinput_shim.ini")).read() == "[shim]\n",
+                  "shim: the bundled dll and the ini are written")
+            _mk(dll, foreign)
+            check(install(sh, bundled, None) is True and open(bak, "rb").read() == foreign,
+                  "shim: somebody else's dinput.dll is kept as the backup")
+            check(install(sh, bundled, None) is False and open(bak, "rb").read() == foreign,
+                  "shim: a second install keeps that backup, not our shim")
+
+            removed = uninstall(sh, bundled)
+            check(sorted(removed) == ["dinput.dll", "xinput_shim.ini"] and not os.path.exists(dll),
+                  "shim: uninstall removes our dll and its ini")
+            check(os.path.exists(bak), "shim: uninstall leaves the backup for the user to restore")
+            check(restore_bak(sh) is True and open(dll, "rb").read() == foreign
+                  and not os.path.exists(bak), "shim: restoring puts the original back")
+            try:
+                uninstall(sh, bundled)
+                check(False, "shim: uninstall refuses somebody else's dinput.dll")
+            except ValueError:
+                check(open(dll, "rb").read() == foreign,
+                      "shim: uninstall refuses somebody else's dinput.dll, and leaves it")
+            os.remove(dll)
+            _mk(os.path.join(sh, "xinput_shim.ini"), b"[shim]\n")
+            check(uninstall(sh, bundled) == ["xinput_shim.ini"],
+                  "shim: a leftover ini alone is removed")
+
+        # ------------------------------------------------------- the setup notes
+        notes = globals().get("setup_notes")
+        check(notes is not None, "notes: setup_notes exists")
+        if notes is not None:
+            text = notes(["EXE fixes: widescreen 3440x1440", "Boot logos blanked: warty_.bik"],
+                         ["XInput controller shim: bundled dinput.dll missing"])
+            applied_part, _, rest = text.partition("Skipped")
+            check("EXE fixes: widescreen 3440x1440" in applied_part and "warty_.bik" in applied_part,
+                  "notes: what was applied is listed as applied")
+            check("controller shim" not in applied_part.lower() and "dinput.dll missing" in rest,
+                  "notes: a skipped step is listed as skipped, with its reason, not as applied")
+            check("dgVoodooCpl" not in text, "notes: no advice about a wrapper that was not installed")
+            check("dgVoodooCpl" in notes(["dgVoodoo2 wrapper: DDraw.dll"], [], wrapper=True),
+                  "notes: the wrapper's advice appears when it was installed")
 
         # ------------------------------------------ tool calls and their errors
         capture = globals().get("run_capturing")

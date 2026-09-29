@@ -1727,20 +1727,12 @@ class ControllerFrame(Section):
             messagebox.showerror("Missing asset", "Bundled dinput.dll not found:\n" + src)
             return
         dest = os.path.join(folder, "dinput.dll")
-        ini = os.path.join(folder, "xinput_shim.ini")
-        bak = dest + ".xinput-bak"
         ini_text = self._ini_text()
         self.log.rule("INSTALL")
 
         def work():
-            backed = False
-            if os.path.exists(dest) and not os.path.exists(bak):
-                shutil.copyfile(dest, bak)
-                backed = True
-            shutil.copyfile(src, dest)
-            with open(ini, "w", encoding="utf-8") as f:
-                f.write(ini_text)
-            return backed
+            # backs up another program's dinput.dll, once, and never the shim itself
+            return core.install_shim(folder, src, ini_text)
 
         def done(backed):
             if backed:
@@ -1761,21 +1753,22 @@ class ControllerFrame(Section):
         if not folder or not os.path.isdir(folder):
             messagebox.showwarning("No folder", "Pick your Starlancer folder first.")
             return
-        dest = os.path.join(folder, "dinput.dll")
-        ini = os.path.join(folder, "xinput_shim.ini")
-        bak = dest + ".xinput-bak"
+        bundled = resource_path(os.path.join("xinput_shim", "dinput.dll"))
+        bak = os.path.join(folder, "dinput.dll.xinput-bak")
         self.log.rule("UNINSTALL")
-        removed = []
         try:
-            for p in (dest, ini):
-                if os.path.exists(p):
-                    os.remove(p)
-                    removed.append(os.path.basename(p))
+            # refuses, removing nothing, where the dinput.dll there is not the shim
+            removed = core.uninstall_shim(folder, bundled)
             if os.path.exists(bak):
                 if messagebox.askyesno("Restore backup", "Restore the original dinput.dll from "
                                        "dinput.dll.xinput-bak?"):
-                    shutil.move(bak, dest)
-                    self.log.line("restored original dinput.dll from backup", "ok")
+                    if core.restore_shim_backup(folder):
+                        self.log.line("restored original dinput.dll from backup", "ok")
+        except ValueError as e:
+            self.log.line(str(e), "warn")
+            self.status("LEFT IN PLACE", "warn")
+            messagebox.showwarning("Not the shim", str(e))
+            return
         except PermissionError:
             messagebox.showerror("Permission denied", "Run as administrator, or use a writable copy.")
             return
@@ -2350,14 +2343,9 @@ class DashboardFrame(Section):
                 raise RuntimeError("exe patch refused:\n" + (text or "").strip())
             out.append(("patched Lancer.exe: " + describe_selections(sel), "ok"))
 
-            dest = os.path.join(folder, "dinput.dll")
             if os.path.exists(bundled_dll):
-                shimbak = dest + ".xinput-bak"
-                if os.path.exists(dest) and not os.path.exists(shimbak):
-                    shutil.copyfile(dest, shimbak)
-                shutil.copyfile(bundled_dll, dest)
-                with open(os.path.join(folder, "xinput_shim.ini"), "w", encoding="utf-8") as f:
-                    f.write(ini_text)
+                if core.install_shim(folder, bundled_dll, ini_text):
+                    out.append(("kept the folder's own dinput.dll as dinput.dll.xinput-bak", "warn"))
                 out.append(("installed XInput shim (dinput.dll + xinput_shim.ini)", "ok"))
             else:
                 out.append(("bundled dinput.dll missing — controller shim skipped", "warn"))
@@ -2510,33 +2498,13 @@ class DeployFrame(Section):
                 copied.append(fn)
         return copied
 
-    def _write_notes(self, dst, o):
-        fixes = describe_selections(
-            recommended_selections(o["w"], o["h"], include_params=o["do_ws"]))
-        lines = ["STARLANCER — READY-TO-PLAY BUILD",
-                 "Assembled by Starlancer Studio. The game was NOT launched during assembly.",
-                 "", "Applied:", "  - EXE fixes: " + fixes]
-        if o["shim"]:
-            lines.append("  - XInput controller shim (dinput.dll + xinput_shim.ini)")
-        if o["logos"]:
-            lines.append("  - Boot logos blanked (.orig backups kept)")
-        if o["dgv"]:
-            lines.append("  - dgVoodoo2 wrapper (DDraw.dll / D3DImm.dll / dgVoodoo.conf / dgVoodooCpl.exe)")
-        if o["mss"]:
-            lines.append("  - mss32.dll sound fix (Miles 6.0a)")
-        lines += ["", "To run (do these yourself — Starlancer Studio never launches the game):",
-                  "  1. Enable the legacy DirectPlay Windows feature if you want multiplayer.",
-                  "  2. (Optional) Run dgVoodooCpl.exe here to tune the wrapper, then close it.",
-                  "  3. Start Lancer.exe.", "",
-                  "Undo the EXE fixes:  sl_patch.py --verify Lancer.exe   |   --revert Lancer.exe out.exe",
-                  "A pristine Lancer.exe.bak is kept next to the patched exe."]
-        path = os.path.join(dst, "READ-ME-RUN-ME.txt")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines) + "\n")
-        return path
-
     # ---- the pipeline -------------------------------------------------------
     def _build_steps(self, src, dst, o):
+        # What the steps did, and what they skipped and why, for the notes: never the options
+        # ticked, which listed a skipped step as applied.
+        applied, skipped = [], []
+        wrapper = []
+
         def s_validate():
             # a patched exe has the stock size, so the size alone proves nothing; stop here,
             # before a gigabyte of copying that the patch step would then refuse
@@ -2556,22 +2524,34 @@ class DeployFrame(Section):
             ok, _rc, text = run_capturing(sl_patch.apply, bak, exe, sel, force=False)
             if not ok:
                 raise RuntimeError("exe patch refused:\n" + (text or "").strip())
+            applied.append("EXE fixes: " + describe_selections(sel))
             return "patched Lancer.exe: " + describe_selections(sel)
 
         def s_shim():
             dll = resource_path(os.path.join("xinput_shim", "dinput.dll"))
             ini = resource_path(os.path.join("xinput_shim", "xinput_shim.ini"))
             if not os.path.exists(dll):
+                skipped.append("XInput controller shim: this build does not bundle its dinput.dll")
                 return ("bundled dinput.dll missing — shim skipped", "warn")
-            shutil.copyfile(dll, os.path.join(dst, "dinput.dll"))
+            ini_text = None
             if os.path.exists(ini):
-                shutil.copyfile(ini, os.path.join(dst, "xinput_shim.ini"))
-            return "installed XInput shim (dinput.dll + xinput_shim.ini)"
+                with open(ini, encoding="utf-8") as f:
+                    ini_text = f.read()
+            kept = core.install_shim(dst, dll, ini_text)
+            applied.append("XInput controller shim (dinput.dll%s)%s" % (
+                " + xinput_shim.ini" if ini_text is not None else "",
+                "; the game's own dinput.dll kept as dinput.dll.xinput-bak" if kept else ""))
+            return "installed XInput shim"
 
         def s_logos():
-            done, skipped = core.blank_loose_logos(dst, LOOSE_LOGOS, _bundled_blank()[0])
-            if skipped:
-                return ("blanked %d boot logo(s); left alone: %s" % (len(done), "; ".join(skipped)),
+            done, left = core.blank_loose_logos(dst, LOOSE_LOGOS, _bundled_blank()[0])
+            if done:
+                applied.append("Boot logos blanked, originals kept as .orig: " + ", ".join(done))
+            skipped.extend("Boot logo left alone: " + reason for reason in left)
+            if not done and not left:
+                skipped.append("Boot logos: none found in the game folder")
+            if left:
+                return ("blanked %d boot logo(s); left alone: %s" % (len(done), "; ".join(left)),
                         "warn")
             return ("blanked %d boot logo(s)" % len(done) if done
                     else ("no loose logos found to blank", "warn"))
@@ -2580,18 +2560,26 @@ class DeployFrame(Section):
             copied = self._copy_dropins(o["drop"], dst,
                                         ["DDraw.dll", "D3DImm.dll", "dgVoodoo.conf", "dgVoodooCpl.exe"])
             if not copied:
+                skipped.append("dgVoodoo2 wrapper: its files were not in the drop-ins folder")
                 return ("dgVoodoo2 files not found in the drop-ins folder — skipped "
                         "(add them there and re-run)", "warn")
+            applied.append("dgVoodoo2 wrapper: " + ", ".join(copied))
+            wrapper.append(True)
             return "dropped dgVoodoo2 (copied, not run): " + ", ".join(copied)
 
         def s_mss():
             copied = self._copy_dropins(o["drop"], dst, ["mss32.dll"])
             if not copied:
+                skipped.append("mss32.dll sound fix: not in the drop-ins folder")
                 return ("mss32.dll not found in the drop-ins folder — skipped", "warn")
+            applied.append("mss32.dll sound fix (Miles 6.0a)")
             return "dropped mss32.dll sound fix"
 
         def s_notes():
-            return "wrote " + os.path.basename(self._write_notes(dst, o))
+            path = os.path.join(dst, "READ-ME-RUN-ME.txt")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(core.setup_notes(applied, skipped, wrapper=bool(wrapper)))
+            return "wrote " + os.path.basename(path)
 
         steps = [("Validate source", s_validate), ("Copy game files", s_copy),
                  ("Patch executable", s_patch)]
