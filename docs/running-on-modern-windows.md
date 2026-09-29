@@ -12,11 +12,16 @@ data, stats, etc.).
 > Everything here is **in-game-untested by us** — assembled from our reverse
 > engineering plus documented community fixes. Your first launch is the real test.
 
+> **Just want to play?** [OpenReliant](https://github.com/vdmkenny/openreliant) is a native
+> reimplementation of the engine that installs from your retail discs and runs on Windows, Linux and
+> macOS, with none of the DRM, wrapper or exe-patch steps below. This checklist is for running the
+> original 2000 executable itself.
+
 ---
 
 ## TL;DR — three paths
 
-- **Easiest "do it for me"** → **[Starlancer Studio](https://github.com/LordBlacksun/Starlancer-OSS/releases/tag/studio-v1.1)**,
+- **Easiest "do it for me"** → **[Starlancer Studio](https://github.com/LordBlacksun/Starlancer-OSS/releases/latest)**,
   the all-in-one app: its **Ready-to-Play** wizard stages a complete patched copy (EXE fixes + controller
   shim + blanked logos + your graphics/audio drop-ins) into an output folder, and its **Dashboard** applies
   the recommended fixes to an existing install in one click. The manual steps below are those same fixes by

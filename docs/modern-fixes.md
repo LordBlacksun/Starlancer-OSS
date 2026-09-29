@@ -324,7 +324,7 @@ reads the stick via `Poll` + `GetDeviceState(DIJOYSTATE)`; **keyboard and mouse 
    widescreen menus + flight-HUD-widget reposition.
 2. **100-FPS uncap** — no in-EXE fix (§4); the safe uncap is a wrapper vsync setting. The highest-value open item.
 3. ~~**One consolidated modern-Windows fix pack**~~ — **DONE**: **Starlancer Studio**
-   (`tools/slstudio_app.py`, released as `studio-v1.1`) wraps the EXE fixes, controller shim, boot-skip,
+   (`tools/slstudio_app.py`, [latest release](https://github.com/LordBlacksun/Starlancer-OSS/releases/latest)) wraps the EXE fixes, controller shim, boot-skip,
    the editors, and a Ready-to-Play deploy wizard into one app.
 
 ## Sources

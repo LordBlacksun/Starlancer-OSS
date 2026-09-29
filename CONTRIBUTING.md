@@ -1,8 +1,17 @@
 # Contributing to Starlancer-OSS
 
-Thanks for your interest. This project documents and tools the data formats and engine of
-**Starlancer** (2000) through original reverse engineering. Contributions — corrections, new
-format findings, tools, and docs — are welcome.
+Thanks for your interest. This project documents the data formats and engine of **Starlancer**
+(2000) through original reverse engineering, as a commons that every project in the scene may build
+on.
+
+## Where your contribution belongs
+
+| Contribution | Where |
+|---|---|
+| Engine work, fixes to how the game plays, new modding tools | **[OpenReliant](https://github.com/vdmkenny/openreliant)**, under its [contributing guide](https://github.com/vdmkenny/openreliant/blob/main/CONTRIBUTING.md) and its licence |
+| Format findings, corrections, reverse-engineering notes, documentation | **Here**, in [`docs/`](docs/) or the wiki |
+| Bug fixes to the original-game kit (Starlancer Studio, `sl_patch`, the XInput shim, the editors) | **Here** |
+| New features for the original-game kit | **OpenReliant** instead: the kit is complete and maintained for bug fixes only, and the same effort does more there |
 
 ## ⚖️ The one hard rule: never commit game data
 
