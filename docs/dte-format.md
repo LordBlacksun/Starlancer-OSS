@@ -25,9 +25,10 @@ plus a block of **trigger/event script bytecode** interpreted by an in-engine VM
 never native code. `resource.hog` holds **44** of them (campaign `mission1..35`, the test set
 `mission191/251/271/311`, multiplayer `mission81..88`, and `mission29/99/801`). Compressed
 (RefPack) sizes run 4.4 KB–66 KB; each **decompresses to a fixed-layout image** (the main
-campaign template is `0xCFBE7` = 850,919 B). `dte_parse.py sweep` decodes all **44** cleanly;
-`dte_parse.py decode <m>` dumps the directory, ships, objectives, triggers, and a script
-disassembly.
+campaign template is `0xCFBE7` = 850,919 B). `dte_parse.py sweep` decodes all **44** cleanly
+(`--script` disassembles every routine of every mission and checks the layout);
+`dte_parse.py decode <m>` dumps the directory, ships, flight groups, triggers, parts, and the
+script, control flow followed.
 
 Path at load: `..\missions\%s.dte`. The engine reads a loose `missions\` file if present, else
 the HOG copy — so edited missions need not be repacked.
@@ -89,7 +90,7 @@ to a live pointer (`offset + image base`). `offset == 0xFFFF` marks an unused se
 | 5 | `DAT_005294E0` | **trigger / event records** ✓ stride `0x30` |
 | 6 | `DAT_00525F88` | **script bytecode base** ✓ (IP origin for the VM). **The count is in halfwords:** the section holds `count × 2` bytes — section 10 carries exactly `2 × count` flags in 44/44 missions, and trigger links (§4) and part starts are halfword offsets (`script + link × 2` in the matcher). Corrected 2026-09-22 |
 | 7 | `DAT_005267C0` | **object table** ✓ stride `8`, indexed by object ID: `+0` kind (`0` ship, `1` flight group, `2` squad), `+1` number of triggers in the object's slice of section 5, `+2` u16 index of the first, `+4` u32 open. Kind-1 and kind-2 entry counts equal the section-4 and section-12 counts in 44/44 missions |
-| 8 | `DAT_005267D0` | object / launch table ✓ stride `0x1C` |
+| 8 | `DAT_005267D0` | **parts** ✓ stride `0x1C`, count `DAT_00529518`: one descriptor per part, a named routine. `+0x00` u16 name (string-pool offset), `+0x0A` u16 start in halfwords (`0xFFFF` none), `+0x0C` flags (bit 0 = run at mission start, per openreliant), `+0x0D` argument count, `+0x10` u16 extent in halfwords (block + constants; agrees with the decoded layout for every part in all 44), `+0x19` byte passed to `FUN_004529D0`. The loader `FUN_00452F50` → `FUN_00452FD0` builds the runtime part table `[0x538C94]` (stride `0x74`: `+0` block = `script + start × 2`, `+4` argument count). Called "object / launch table" here until 2026-09-29 |
 | 9 | `DAT_005256C8` | populated in 16/44 missions; record layout TBD |
 | 10 | `DAT_005294D8` | **per-bytecode-byte flag array** ✓ (VM yield map, indexed `IP − bytecode base`) |
 | 11 | `PTR_DAT_004EF2FC` | operand / target list |
@@ -98,15 +99,15 @@ to a live pointer (`offset + image base`). `offset == 0xFFFF` marks an unused se
 | 14 | `DAT_00525F18` | stride `8`; entry `+4` u16 → sec 15 (rare: 3/44) |
 | 15 | `DAT_005256B8` | position / nav-geometry records ✓ stride `0x10` (rare: 3/44) |
 | 16 | `DAT_00525FB0` | **sub-object / model table** ✓ stride `0x44` (36/44; index fields + 3-D coord vectors; `FUN_004571D0`) |
-| 17 | `DAT_005294EC` | vestigial — empty in all 44 |
-| 18 | `DAT_00525FB4` | vestigial — empty in all 44 |
+| 17 | `DAT_005294EC` | vestigial — empty in all 44. **Part descriptors of the AI layer** (stride `0x1C`, as section 8), built into the second runtime part table `[0x538C98]` by `FUN_00452F50`, which `0x4A`/`0x4E` call — see [the vestigial AI layer](dte-scripting-reference.md#the-vestigial-ai-layer) |
+| 18 | `DAT_00525FB4` | vestigial — empty in all 44. **Bytecode of the AI layer**: `FUN_00453020` bases any part descriptor outside section 8 here instead of section 6 |
 | 19 | `DAT_0052950C` | vestigial — empty in all 44 |
 | 20 | `DAT_00525FA0` | vestigial — empty in all 44 |
 | 21 | (stack temp) | transient (count only) |
 | 22 | `DAT_00525278` | operand-resolution array (kind 1) ✓ stride `2` (large: ≤ 61436) |
 | 23 | `PTR_DAT_004EE7D8` | populated 40/44; record layout TBD |
 | 24 | `DAT_00525F9C` | **per-command flag words** ✓ stride `2`: one `u16` per Executor command. The `0x21` handler (`0x45BEA0`) reads entry `i`, inverts bit 0 and stores it at `DAT_00537584` before calling command `i` (verified); what the flags mean is open (openreliant: cumulative masks such as 1, 3, 7). Populated 36/44 |
-| 25 | `DAT_00525F90` | vestigial — empty in all 44 |
+| 25 | `DAT_00525F90` | vestigial — empty in all 44. **Per-function flag words of the AI layer**, read by `0x4F` exactly as `0x21` reads section 24 |
 | 26 | `DAT_0052570C` | operand-resolution array (kind 2) ✓ stride `2` (rare: 3/44) |
 
 > Strides + population above come from a 44-mission `dte_parse.py sweep --sections` (offset +
@@ -347,10 +348,12 @@ conflict still stand: Executor command `0x28` is `Fly` and `0x05` is `Wait` (the
 indexed by the byte after `0x21`), and Starlancer ME's AI-mode table is the value domain of
 `SetAI`'s *AI Mode* parameter.
 
-**`tools/dte_parse.py` predates these corrections.** Its `ref stream` table and its linear
-`decode --section script` listing still carry the old readings — and read the section-6 count as
-bytes, so they cover only half of each script. Treat that listing as untrustworthy until the tool is
-rewritten. The container, directory, ship and Executor-catalogue decoders are unaffected.
+**`tools/dte_parse.py` was rebuilt on these corrections (2026-09-29).** Until then its `ref stream`
+table and its linear `decode --section script` listing carried the old readings, and they read the
+section-6 count as bytes, so they covered only half of each script. The listing now follows
+control flow from every routine's entry with every operand width read from its handler, and
+decodes all 44 missions with zero errors and exact tiling. See
+[the disassembler](dte-scripting-reference.md#the-disassembler).
 
 ---
 

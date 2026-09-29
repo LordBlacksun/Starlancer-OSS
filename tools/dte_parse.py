@@ -11,7 +11,8 @@ On-disk container (fully decoded -- see ``docs/dte-format.md``):
 
 * The HOG-stored ``.dte`` is **RefPack / EA "QFS" compressed** (signature ``10 FB``,
   3-byte big-endian uncompressed size).  The engine reads it (``FUN_0045A300`` ->
-  ``FUN_004C5BE0`` HOG read, no extra transform) and the RefPack stream expands into a
+  the HOG reader ``FUN_004C7F60``, which expands a member that begins ``10 FB`` and
+  reads any other verbatim) and the RefPack stream expands into a
   fixed image (~0xCFBE7 bytes for the main campaign template).
 * The decompressed image opens with a **27-entry, 8-byte directory** at offset 0:
   each entry is ``{u16 count, byte reloc-flags @ bits 24-27, u32 offset}`` and the
@@ -26,17 +27,25 @@ The semantic tables (trigger enum, Executor commands, AI codes, stream opcodes) 
 
 * **Static RE of the decrypted exe** (ImageBase 0x400000): the trigger enum
   (``FUN_0045B330``), the command catalogue at VA ``0x4F0F50`` (``FUN_0045CE30``),
-  the bytecode VM ``FUN_0045C980`` over the 256-entry table ``DAT_004F6350``, per-
-  command impl addresses + parameter counts, and the section order (``FUN_00451D90``).
+  the bytecode VM ``FUN_0045C980`` over the 86-entry table ``DAT_004F6350`` (every
+  operand width read from its handler), per-command impl addresses + parameter
+  counts, and the section order (``FUN_00451D90``).
 * **Black-box RE by Captain Foster / "Starlancer ME"** (starlancerme.blogspot.com):
-  the numeric opcode/command indices, the AI-code table, the ship/pilot ID tables,
-  and the observed in-game semantics.
+  the command indices, the AI-mode table, the ship/pilot ID tables, and the
+  observed in-game semantics.
+* **openreliant** (github.com/vdmkenny/openreliant, docs/formats/dte.md): the
+  opcode names, and the part and routine layout, each re-read here against the exe.
+
+The script listing follows control flow from every routine's entry -- the parts
+of section 8 and the triggers some object's slice holds -- rather than sweeping,
+and a misread width cannot pass silently: a path leaving its block, two
+instructions sharing a byte, or a null opcode is reported as an error.
 
 Usage:
   dte_parse.py ref [triggers|exec|ai|stream]   # print a reference table
   dte_parse.py decode <mission.dte> [--limit N] [--section NAME]   # full decode
   dte_parse.py inspect <mission.dte>           # raw (compressed) quick look
-  dte_parse.py sweep <dir>                      # decode + validate every .dte
+  dte_parse.py sweep <dir> [--sections] [--script]   # decode + validate every .dte
 """
 import argparse
 import os
@@ -216,7 +225,8 @@ EXEC_BY_IDX = {idx: (name, va, params) for idx, name, va, params in EXEC_CATALOG
 # back-compat alias: command name -> (param_count, impl VA)
 EXEC_IMPL = {name: (len(params), va) for idx, name, va, params in EXEC_CATALOG if va}
 
-# AI behaviour codes (script opcode 0x32 <index>)  -- Starlancer ME "AI Codes" page.
+# AI modes -- the values of SetAI's "AI Mode" parameter, which a script pushes with
+# push_byte (0x32 <n>) before `command 0x0B`.  Starlancer ME's "AI Codes" page.
 AI_CODES = {
     0x00: "Do Nothing", 0x01: "Fly Aimlessly", 0x02: "Launch Missile", 0x03: "Launch Missile",
     0x04: "Warp In", 0x05: "Warp Out", 0x06: "Fly", 0x07: "Run Away", 0x08: "Land", 0x09: "Escort",
@@ -239,26 +249,6 @@ AI_CODES = {
     0x43: "Deathmatch Respawn Effect", 0x44: "Deathmatch Dark Reign target",
 }
 
-# Script-stream control opcodes (the bytes that frame the action stream) and the
-# condition-expression micro-ops, fused from the blog's observations + our VM.
-STREAM_OPS = [
-    ("0x21 <i>", "Call Executor command #i (consumes that command's params)", "command call"),
-    ("0x32 <i>", "Set AI behaviour code #i on the current entity", "AI code"),
-    ("0x2A <n>", "Play speech: n = speech index (our copies); inline .ut name in blog's copies", "speech"),
-    ("0x2C <o>", "Single-object reference (one ship/entity)", "operand"),
-    ("0x2D <g>", "Flight-group reference", "operand"),
-    ("0x22 <p>", "Section/part marker (22 00..22 1F): start of script 'part' p", "part"),
-    ("0x4D <p>", "Jump/branch into part p", "part jump"),
-    ("0x43", "Code/line end marker", "end"),
-    ("0x27 <i>", "Read global variable[i].value onto the stack (read-mem)", "expr"),
-    ("0x40 <i>", "Push address of global[i].value (write-mem lvalue)", "expr"),
-    ("0x3F <i>", "Push address of array slot[i] (lvalue); land-loop branch in context", "expr"),
-    ("0x23/0x24", "Push 16-bit immediate", "expr"),
-    ("0x28 <n>", "Wait / operand fetch (compare context)", "expr"),
-    ("0x02 / 0x03", "Compare: != / ==", "expr"),
-    ("0x14", "Squad / condition membership test", "expr"),
-]
-
 # --------------------------------------------------------------------------- #
 #  Container layer -- RefPack/QFS decompression + the 27-section directory.    #
 # --------------------------------------------------------------------------- #
@@ -273,29 +263,29 @@ SECTIONS = [
     ("string_pool",      "DAT_00525FA8", "strings",  1),     # 0  name/text pool (byte-indexed)
     ("section1",         "DAT_00525F3C", None,        2),    # 1  operand-resolution array, kind 0 (FUN_004529d0)
     ("globals",          "DAT_005294F8", "globals",   0x0C), # 2  script global variables
-    ("ships",            "DAT_0052951C", "ships",     0x4C), # 3  flight-group / ship array
-    ("fg_triggers",      "DAT_005267CC", "fg",        0x14), # 4  per-FG table (blog: "FG triggers")
-    ("triggers",         "DAT_005294E0", "triggers",  0x30), # 5  scriptable triggers (blog: "fighter triggers")
-    ("script",           "DAT_00525F88", "script",    1),    # 6  bytecode stream (count = #bytes)
-    ("ship_trig_index",  "DAT_005267C0", None,        8),    # 7  per-ship trigger index
-    ("launch_object",    "DAT_005267D0", None,        0x1C), # 8  object / launch table
+    ("ships",            "DAT_0052951C", "ships",     0x4C), # 3  placed ships, stations, nav points; +0 object ID
+    ("flight_groups",    "DAT_005267CC", "fg",        0x14), # 4  flight groups; +0 object ID (push_flight_group 0x2D)
+    ("triggers",         "DAT_005294E0", "triggers",  0x30), # 5  triggers; +0 condition, +2 link, +0x15 qualifier
+    ("script",           "DAT_00525F88", "script",    2),    # 6  bytecode; count is in HALFWORDS (2*count bytes)
+    ("object_table",     "DAT_005267C0", None,        8),    # 7  by object ID: kind, trigger-slice count + first
+    ("parts",            "DAT_005267D0", None,        0x1C), # 8  part descriptors -> runtime table [0x538C94]
     ("section9",         "DAT_005256C8", None,        None), # 9  populated in 16/44 missions (layout TBD)
     ("script_yieldflags","DAT_005294D8", None,        1),    # 10 per-byte VM yield flags (count = #script bytes)
     ("section11",        "PTR_DAT_004EF2FC", None,    None), # 11 operand/target list (count <= 1)
-    ("section12",        "DAT_005294FC", None,        None), # 12 secondary trigger/condition list (layout TBD)
-    ("squad",            "DAT_00529500", None,        0x0C), # 13 squad / membership table
+    ("squads",           "DAT_005294FC", None,        0x0C), # 12 squads; +0 object ID, +8 first member (push_squad 0x44)
+    ("squad_members",    "DAT_00529500", None,        0x0C), # 13 squad membership records
     ("section14",        "DAT_00525F18", None,        8),    # 14 stride 8; entry +4 u16 -> sec15 (rare: 3/44)
     ("section15",        "DAT_005256B8", None,        0x10), # 15 position / nav-geometry records (rare: 3/44)
     ("section16",        "DAT_00525FB0", None,        0x44), # 16 sub-object/model table (36/44; idx fields + coord vectors)
-    ("section17",        "DAT_005294EC", None,        None), # 17 vestigial -- empty in all 44
-    ("section18",        "DAT_00525FB4", None,        None), # 18 vestigial -- empty in all 44
+    ("parts_b",          "DAT_005294EC", None,        0x1C), # 17 vestigial: "b" part descriptors -> [0x538C98]
+    ("script_b",         "DAT_00525FB4", None,        None), # 18 vestigial: "b" bytecode (see B_LAYER)
     ("section19",        "DAT_0052950C", None,        None), # 19 vestigial -- empty in all 44
     ("section20",        "DAT_00525FA0", None,        None), # 20 vestigial -- empty in all 44
     ("section21",        "(local)",      None,        None), # 21 transient stack temp (count only)
     ("section22",        "DAT_00525278", None,        2),    # 22 operand-resolution array, kind 1 (large)
     ("section23",        "PTR_DAT_004EE7D8", None,    None), # 23 populated 40/44 (layout TBD)
-    ("section24",        "DAT_00525F9C", None,        None), # 24 populated 36/44 (layout TBD)
-    ("section25",        "DAT_00525F90", None,        None), # 25 vestigial -- empty in all 44
+    ("command_flags",    "DAT_00525F9C", None,        2),    # 24 u16 per command; 0x21 inverts bit 0 into DAT_00537584
+    ("command_b_flags",  "DAT_00525F90", None,        2),    # 25 vestigial: the same for 0x4F (see B_LAYER)
     ("section26",        "DAT_0052570C", None,        2),    # 26 operand-resolution array, kind 2 (rare: 3/44)
 ]
 EMPTY_OFF = 0xFFFF  # directory sentinel for an unused section
@@ -484,7 +474,7 @@ class Mission:
             rec = m[r:r + 0x4C]
             if len(rec) < 0x4C:
                 break
-            fg = struct.unpack_from("<H", rec, 0)[0]
+            oid = struct.unpack_from("<I", rec, 0)[0]    # object ID -> section 7
             name = self.string(struct.unpack_from("<H", rec, 4)[0])
             pos = struct.unpack_from("<3f", rec, 8)
             # authored Euler angles, whole degrees, at NON-contiguous offsets;
@@ -495,8 +485,8 @@ class Mission:
                       struct.unpack_from("<h", rec, 0x4A)[0])   # roll
             # type/role is u16 — normal ships < 0x100, but special objects (nav points,
             # jump/escort markers) use 0x3E3..0x3E8, so a byte read truncates ~41% of records.
-            yield {"i": i, "fg": fg, "name": name, "pos": pos, "orient": orient,
-                   "b14": rec[0x14], "iff": rec[0x15],
+            yield {"i": i, "id": oid, "fg": rec[0x14], "name": name, "pos": pos,
+                   "orient": orient, "b14": rec[0x14], "iff": rec[0x15],
                    "type": struct.unpack_from("<H", rec, 0x18)[0], "raw": rec}
 
     def fg_records(self):
@@ -509,97 +499,502 @@ class Mission:
             a, b, c, d = struct.unpack_from("<IIII", rec, 0)
             yield {"i": i, "id": a, "ref": b, "f8": c, "f12": d, "raw": rec}
 
+    def objects(self):
+        """Section 7, indexed by object ID: its kind and its slice of the triggers.
+
+        Kind 0 is a ship, 1 a flight group, 2 a squad; `first` and `ntrig` give the
+        run of section 5 the engine walks when an event happens to the object.
+        """
+        base, n, m = self.offset(7), self.count(7), self.image
+        if base == EMPTY_OFF:
+            return
+        for i in range(n):
+            r = base + i * 8
+            if r + 8 > len(m):
+                break
+            yield {"id": i, "kind": m[r], "ntrig": m[r + 1],
+                   "first": struct.unpack_from("<H", m, r + 2)[0]}
+
     def triggers(self):
+        """Section 5, with each trigger's subject: the object whose slice holds it.
+
+        A trigger holds no subject of its own (docs/dte-format.md section 4); one no
+        slice holds has `subject` None and never fires.
+        """
+        subject = {}
+        for o in self.objects():
+            for k in range(o["first"], o["first"] + o["ntrig"]):
+                subject[k] = o["id"]
         base, n, m = self.offset(5), self.count(5), self.image
         for i in range(n):
             r = base + i * 0x30
             rec = m[r:r + 0x30]
             if len(rec) < 0x30:
                 break
-            yield {"i": i, "b0": rec[0], "b1": rec[1], "b2": rec[2],
-                   "fields": struct.unpack_from("<8H", rec, 8), "raw": rec}
+            yield {"i": i, "condition": rec[0], "repeat": rec[1],
+                   "link": struct.unpack_from("<H", rec, 2)[0], "armed": rec[0x14],
+                   "qualifier": rec[0x15], "run": rec[0x16], "subject": subject.get(i),
+                   "raw": rec}
+
+    def parts(self):
+        """Section 8: one 28-byte descriptor per part, a named routine.
+
+        The loader (FUN_00452F50 -> FUN_00452FD0) sets the runtime entry's block to
+        ``script + start * 2`` (0xFFFF = none) and its argument count from +0x0D.
+        `extent` (+0x10, halfwords) is the author's size of block plus constants.
+        """
+        base, n, m = self.offset(8), self.count(8), self.image
+        if base == EMPTY_OFF:
+            return
+        for i in range(n):
+            r = base + i * 0x1C
+            rec = m[r:r + 0x1C]
+            if len(rec) < 0x1C:
+                break
+            yield {"i": i, "name": self.string(struct.unpack_from("<H", rec, 0)[0]),
+                   "start": struct.unpack_from("<H", rec, 0x0A)[0], "flags": rec[0x0C],
+                   "argc": rec[0x0D], "extent": struct.unpack_from("<H", rec, 0x10)[0],
+                   "raw": rec}
+
+    def globals(self):
+        """Section 2: the named values the script reads and writes (u16 name, u32 value)."""
+        base, n, m = self.offset(2), self.count(2), self.image
+        if base == EMPTY_OFF:
+            return
+        for i in range(n):
+            r = base + i * 0x0C
+            if r + 0x0C > len(m):
+                break
+            yield {"i": i, "name": self.string(struct.unpack_from("<H", m, r)[0]),
+                   "value": struct.unpack_from("<I", m, r + 4)[0]}
+
+    def script(self):
+        """Section 6, the bytecode: `count` halfwords, so ``2 * count`` bytes."""
+        off = self.offset(6)
+        if off == EMPTY_OFF:
+            return b""
+        return self.image[off:off + 2 * self.count(6)]
+
+    def object_names(self):
+        """Object ID -> a readable name for the listing."""
+        names = {}
+        for s in self.ships():
+            names[s["id"]] = 'ship %d "%s"' % (s["i"], s["name"])
+        for slot, stride, label in ((4, 0x14, "flight group"), (12, 0x0C, "squad")):
+            base, n = self.offset(slot), self.count(slot)
+            if base == EMPTY_OFF:
+                continue
+            for i in range(n):
+                r = base + i * stride
+                if r + 4 <= len(self.image):
+                    names.setdefault(struct.unpack_from("<I", self.image, r)[0], "%s %d" % (label, i))
+        return names
 
 
 # --------------------------------------------------------------------------- #
-#  Script-stream disassembler (linear; the action + condition opcodes).        #
+#  Script VM instruction set -- 71 opcodes, every width read from its handler. #
 # --------------------------------------------------------------------------- #
-# operand byte-width per opcode (best-effort; unknown opcodes consume 0 operands)
-_OPW = {0x21: 1, 0x32: 1, 0x22: 1, 0x4D: 1, 0x2A: 1, 0x2C: 1, 0x2D: 1,
-        0x27: 1, 0x40: 1, 0x3F: 1, 0x28: 1, 0x23: 2, 0x24: 2,
-        0x02: 0, 0x03: 0, 0x43: 0, 0x14: 0, 0x42: 1, 0x09: 0, 0x07: 0}
+# The interpreter FUN_0045C980 fetches an opcode byte, indexes the 86-entry
+# handler table DAT_004F6350 (0x00-0x55), advances the IP past the opcode and
+# calls the handler with ECX pointing at the IP cell; execution resumes wherever
+# the handler leaves that cell.  Every row's operand form below was read from
+# its handler's bytes (capstone over the exe as data, 2026-09-22 and
+# 2026-09-29).  Names follow openreliant's docs/formats/dte.md, which reached
+# the same widths independently by symbolic execution.  0x00, 0x01, 0x08-0x13
+# and 0x50 are null; five pairs share a handler and are the same operation.
+#
+# form -- the operand bytes after the opcode:
+#   ""    none              "b"  one byte          "bb"  two bytes
+#   "bbb" three bytes       "w"  big-endian u16
+#   "d"   big-endian u16 displacement, counted from its own address (forward only)
+#   "s"   a length byte that counts itself, then NUL-terminated text
+#   "r"   random_branch: count, big-endian default, count x (big-endian target,
+#         threshold, one byte the handler never reads); targets count from the opcode
+# flow -- where execution goes next:
+#   "seq"    after the operands          "branch" after them, or to the target
+#   "jump"   to the target only          "call"   into a part, then after the operands
+#   "return" nowhere: leaves the part, or ends the thread when the depth is zero
+#   "random" one of the targets (the handler always sets the IP; never falls through)
+OPCODES = {
+    0x02: ("equal",               "",    "seq",    0x45BAD0),
+    0x03: ("not_equal",           "",    "seq",    0x45BB00),
+    0x04: ("greater",             "",    "seq",    0x45BB30),
+    0x05: ("greater_equal",       "",    "seq",    0x45BB60),
+    0x06: ("less",                "",    "seq",    0x45BB90),
+    0x07: ("less_equal",          "",    "seq",    0x45BBC0),
+    0x14: ("in_flight_group",     "",    "seq",    0x45BBF0),
+    0x15: ("not_in_flight_group", "",    "seq",    0x45BC30),
+    0x16: ("assign",              "",    "seq",    0x45BC70),
+    0x17: ("add_assign",          "",    "seq",    0x45BCA0),
+    0x18: ("sub_assign",          "",    "seq",    0x45BCD0),
+    0x19: ("mul_assign",          "",    "seq",    0x45BD00),
+    0x1A: ("div_assign",          "",    "seq",    0x45BD30),
+    0x1B: ("add",                 "",    "seq",    0x45BD60),
+    0x1C: ("sub",                 "",    "seq",    0x45BD90),
+    0x1D: ("mul",                 "",    "seq",    0x45BDC0),
+    0x1E: ("div",                 "",    "seq",    0x45BDF0),
+    0x1F: ("logical_and",         "",    "seq",    0x45BE20),
+    0x20: ("logical_or",          "",    "seq",    0x45BE60),
+    0x21: ("command",             "b",   "seq",    0x45BEA0),
+    0x22: ("call_part",           "b",   "call",   0x45BFA0),
+    0x23: ("branch_if_zero",      "d",   "branch", 0x45C270),
+    0x24: ("branch_if_zero",      "d",   "branch", 0x45C270),
+    0x25: ("return",              "",    "return", 0x45C6E0),
+    0x26: ("push_array",          "b",   "seq",    0x45C2D0),
+    0x27: ("push_global",         "b",   "seq",    0x45C300),
+    0x28: ("push_constant",       "b",   "seq",    0x45C340),
+    0x29: ("push_constant_wide",  "w",   "seq",    0x45C370),
+    0x2A: ("push_string",         "s",   "seq",    0x45C3B0),
+    0x2B: ("push_string",         "s",   "seq",    0x45C3B0),
+    0x2C: ("push_ship",           "b",   "seq",    0x45C3E0),
+    0x2D: ("push_flight_group",   "b",   "seq",    0x45C560),
+    0x2E: ("push_byte",           "b",   "seq",    0x45C6B0),
+    0x2F: ("push_percent",        "b",   "seq",    0x45DA50),
+    0x30: ("push_local",          "b",   "seq",    0x45C5A0),
+    0x31: ("push_argument",       "b",   "seq",    0x45C680),
+    0x32: ("push_byte",           "b",   "seq",    0x45C6B0),
+    0x33: ("greater_f",           "",    "seq",    0x45DAB0),
+    0x34: ("greater_equal_f",     "",    "seq",    0x45DB10),
+    0x35: ("less_f",              "",    "seq",    0x45DB70),
+    0x36: ("less_equal_f",        "",    "seq",    0x45DBD0),
+    0x37: ("add_assign_f",        "",    "seq",    0x45DC30),
+    0x38: ("sub_assign_f",        "",    "seq",    0x45DC70),
+    0x39: ("mul_assign_f",        "",    "seq",    0x45DCB0),
+    0x3A: ("div_assign_f",        "",    "seq",    0x45DCF0),
+    0x3B: ("add_f",               "",    "seq",    0x45DD30),
+    0x3C: ("sub_f",               "",    "seq",    0x45DD80),
+    0x3D: ("mul_f",               "",    "seq",    0x45DDD0),
+    0x3E: ("div_f",               "",    "seq",    0x45DE20),
+    0x3F: ("select_array",        "b",   "seq",    0x45C790),
+    0x40: ("select_global",       "b",   "seq",    0x45C7D0),
+    0x41: ("select_argument",     "b",   "seq",    0x45C810),
+    0x42: ("jump",                "d",   "jump",   0x45C2B0),
+    0x43: ("return",              "",    "return", 0x45C6E0),
+    0x44: ("push_squad",          "b",   "seq",    0x45C850),
+    0x45: ("in_squad",            "",    "seq",    0x45C890),
+    0x46: ("not_in_squad",        "",    "seq",    0x45C8D0),
+    0x47: ("push_component",      "bb",  "seq",    0x45C460),
+    0x48: ("push_null",           "",    "seq",    0x45C4B0),
+    0x49: ("push_curve",          "b",   "seq",    0x45C4D0),
+    0x4A: ("call_part_b",         "b",   "call",   0x45C110),
+    0x4B: ("push_event_value",    "bbb", "seq",    0x45C5E0),
+    0x4C: ("push_result",         "",    "seq",    0x45C650),
+    0x4D: ("spawn_part",          "b",   "seq",    0x45C070),
+    0x4E: ("spawn_part_b",        "b",   "seq",    0x45C1E0),
+    0x4F: ("command_b",           "b",   "seq",    0x45BF20),
+    0x51: ("random_branch",       "r",   "random", 0x45C910),
+    0x52: ("push_ship_wide",      "w",   "seq",    0x45C420),
+    0x53: ("nop",                 "",    "seq",    0x45C510),
+    0x54: ("push_section_19",     "b",   "seq",    0x45C520),
+    0x55: ("push_component",      "bb",  "seq",    0x45C460),
+}
+_FIXED = {"": 0, "b": 1, "bb": 2, "bbb": 3, "w": 2, "d": 2}
+
+# The second, AI-owned script layer.  0x4A / 0x4E run parts from the table
+# [0x538C98], which the loader (FUN_00452F50) builds from section 17 over the
+# bytecode of section 18; 0x4F dispatches through the AI-function catalogue at
+# 0x4F3AD0 (one entry, Test_AI_Function, no implementation) to FUN_0045D800,
+# which is `mov eax, 1; ret 8`.  Sections 17, 18 and 25 are empty in every
+# shipped mission.  The layer is wired end to end and never used.
+B_LAYER = (0x4A, 0x4E, 0x4F)
 
 
-def disasm_script(mission, limit=120):
-    """Yield human-readable lines for the script bytecode section (slot 6).
+def _be16(code, p):
+    if p + 2 > len(code):
+        raise DTEError("operand at %d runs past the script" % p)
+    return (code[p] << 8) | code[p + 1]
 
-    The stream is a series of u16-length-prefixed blocks; within a block the bytes
-    are action/condition opcodes.  This is a *linear* decode (operands consumed by
-    width); 0x22 <p> part-markers delimit logical parts.
+
+def decode_insn(code, p):
+    """Decode the instruction at byte `p` of the script section `code`.
+
+    Returns ``(op, size, args, targets, falls_through)``: `targets` are the
+    script-relative byte offsets it can transfer to besides falling through.
+    Raises DTEError on a null opcode or an instruction that runs off `code`.
     """
-    m = mission.image
-    base = mission.offset(6)
-    size = mission.count(6)
-    end = base + size
-    p = base
-    emitted = 0
-    block = 0
-    while p + 2 <= end and emitted < limit:
-        blen = struct.unpack_from("<H", m, p)[0]
-        if blen == 0 or p + 2 + blen > end:
-            break
-        yield "  block %-3d @+0x%05X  len=%d" % (block, p - base, blen)
-        q = p + 2
-        bend = q + blen
-        while q < bend and emitted < limit:
-            op = m[q]; q += 1
-            w = _OPW.get(op, 0)
-            operand = m[q:q + w]; q += w
-            yield "    " + _fmt_op(op, operand)
-            emitted += 1
-        block += 1
-        p = bend
-    if emitted >= limit:
-        yield "    ... (truncated at --limit %d ops)" % limit
+    if not 0 <= p < len(code):
+        raise DTEError("instruction at %d is outside the script" % p)
+    op = code[p]
+    row = OPCODES.get(op)
+    if row is None:
+        raise DTEError("null opcode 0x%02X at %d" % (op, p))
+    _name, form, flow, _va = row
+    q = p + 1
+    targets = []
+    if form == "s":
+        if q >= len(code):
+            raise DTEError("push_string at %d runs past the script" % p)
+        n = code[q]
+        if n == 0:
+            raise DTEError("push_string at %d has a zero length" % p)
+        size = 1 + n
+        args = (code[q + 1:p + size].split(b"\0", 1)[0].decode("latin-1", "replace"),)
+    elif form == "r":
+        if q >= len(code):
+            raise DTEError("random_branch at %d runs past the script" % p)
+        n = code[q]
+        size = 4 + 4 * n
+        default = _be16(code, q + 1)
+        arms = []
+        for k in range(n):
+            a = q + 3 + 4 * k
+            if a + 4 > len(code):
+                raise DTEError("random_branch at %d runs past the script" % p)
+            arms.append((_be16(code, a), code[a + 2], code[a + 3]))
+        args = (default, tuple(arms))
+        targets.append(p + default)
+        targets.extend(p + t for t, _thr, _unused in arms if t != 0xFFFF)
+    else:
+        size = 1 + _FIXED[form]
+        if p + size > len(code):
+            raise DTEError("%s at %d runs past the script" % (_name, p))
+        if form in ("w", "d"):
+            args = (_be16(code, q),)
+            if form == "d":
+                targets.append(q + args[0])
+        else:
+            args = tuple(code[q:p + size])
+    if p + size > len(code):
+        raise DTEError("%s at %d runs past the script" % (_name, p))
+    return op, size, args, targets, flow in ("seq", "branch", "call")
 
 
-def _fmt_op(op, operand):
-    val = operand[0] if len(operand) == 1 else (struct.unpack("<H", operand)[0] if len(operand) == 2 else None)
+class Block:
+    """One decoded block: a u16 length that counts itself, then instructions.
+
+    The engine starts a thread at ``start + 2`` with its limit at ``start + length``
+    (FUN_0045B8D0).  `insns` maps a script-relative offset to
+    ``(op, size, args, targets)`` for every instruction some path reaches.
+    """
+
+    def __init__(self, start, length, insns, gaps, padding, falls_off, nconst, slack=()):
+        self.start, self.length = start, length
+        self.insns, self.gaps, self.padding = insns, gaps, padding
+        self.falls_off, self.nconst, self.slack = falls_off, nconst, list(slack)
+
+    @property
+    def end(self):
+        return self.start + self.length
+
+    @property
+    def const_bytes(self):
+        """The constant table's size: 4 per constant, rounded up to 8."""
+        return (self.nconst * 4 + 7) & ~7
+
+
+def decode_block(code, start):
+    """Follow control flow through the block at byte `start` of the script.
+
+    Every path is followed from the entry rather than sweeping, because jump,
+    return and random_branch never fall through.  A path that leaves the block,
+    two instructions sharing a byte, or a null opcode raises DTEError -- the
+    symptoms of a misread width, so a wrong table cannot pass silently.
+    Unreached bytes are reported: up to three trailing ones are the padding to
+    a four-byte boundary, anything else is a gap nothing jumps to.
+    """
+    if start + 2 > len(code):
+        raise DTEError("block at %d: no room for its length" % start)
+    length = struct.unpack_from("<H", code, start)[0]
+    lo, hi = start + 2, start + length
+    if length < 3 or hi > len(code):
+        raise DTEError("block at %d: length %d does not fit the script" % (start, length))
+    insns, owner, work = {}, {}, [lo]
+    falls_off = False
+    while work:
+        p = work.pop()
+        if p in insns:
+            continue
+        if p == hi:
+            falls_off = True            # ran into the limit: the thread ends there
+            continue
+        if not lo <= p < hi:
+            raise DTEError("block at %d: control reaches %d, outside [%d, %d)" % (start, p, lo, hi))
+        op, size, args, targets, falls = decode_insn(code, p)
+        if p + size > hi:
+            raise DTEError("block at %d: %s at %d runs past the block end %d"
+                           % (start, OPCODES[op][0], p, hi))
+        for b in range(p, p + size):
+            if owner.get(b, p) != p:
+                raise DTEError("block at %d: instructions at %d and %d overlap" % (start, owner[b], p))
+            owner[b] = p
+        insns[p] = (op, size, args, targets)
+        work.extend(targets)
+        if falls:
+            work.append(p + size)
+    gaps, g = [], None
+    for b in range(lo, hi):
+        if b in owner:
+            if g is not None:
+                gaps.append((g, b)); g = None
+        elif g is None:
+            g = b
+    if g is not None:
+        gaps.append((g, hi))
+    padding = 0
+    if gaps and gaps[-1][1] == hi and hi - gaps[-1][0] <= 3:
+        padding = hi - gaps.pop()[0]
+    # random_branch slack: the mission compiler laid random_branch out with room
+    # for more arms than it filled.  In all four shipped instances (count 2) the
+    # first arm targets +44 from the opcode -- a 4-byte head plus ten 4-byte arm
+    # slots -- and the eight unused slots hold stale buffer bytes, not zeros.  The
+    # handler reads only `count` arms and never falls through, so they are never
+    # read.  A gap running from a random_branch's end to the first code it
+    # targets is that slack, not code nothing reaches.
+    slack = []
+    for p, (op, size, args, targets) in insns.items():
+        if op == 0x51 and targets:
+            g = (p + size, min(targets))
+            if g in gaps:
+                gaps.remove(g)
+                slack.append(g)
+    idx = [a[0] for o, _s, a, _t in insns.values() if o in (0x28, 0x29)]
+    return Block(start, length, insns, gaps, padding, falls_off, max(idx) + 1 if idx else 0,
+                 sorted(slack))
+
+
+class Routine:
+    """A block plus the constant table that follows it, up to the next routine."""
+
+    def __init__(self, start, end, owners, block=None, error=None):
+        self.start, self.end, self.owners = start, end, owners
+        self.block, self.error = block, error
+
+    def constants(self, code):
+        b = self.block
+        if b is None:
+            return []
+        return [struct.unpack_from("<I", code, b.end + 4 * k)[0]
+                for k in range(b.nconst) if b.end + 4 * k + 4 <= len(code)]
+
+    def checks(self, parts):
+        """Layout claims about this routine, as {name: bool}."""
+        b = self.block
+        if b is None:
+            return {}
+        out = {"tiles": b.end + b.const_bytes == self.end}
+        ext = [parts[i]["extent"] * 2 for kind, i in self.owners if kind == "part"]
+        if ext:
+            out["extent"] = all(e == self.end - self.start for e in ext)
+        return out
+
+
+def script_routines(mission):
+    """Every routine in section 6, found from its entry points.
+
+    Entries are the parts' starts (section 8) and the links of the triggers that
+    some object's slice of section 5 holds (section 7); a link no slice holds is
+    never followed by the engine and often points at nothing.  Each routine runs
+    from its entry to the next one, the last to the end of the section.
+    """
+    code = mission.script()
+    parts = list(mission.parts())
+    entries = {}
+    for p in parts:
+        if p["start"] != 0xFFFF:
+            entries.setdefault(p["start"] * 2, []).append(("part", p["i"]))
+    for t in mission.triggers():
+        if t["subject"] is not None and t["link"] != 0xFFFF:
+            entries.setdefault(t["link"] * 2, []).append(("trigger", t["i"]))
+    starts = sorted(entries)
+    out = []
+    for k, s in enumerate(starts):
+        end = starts[k + 1] if k + 1 < len(starts) else len(code)
+        try:
+            out.append(Routine(s, end, entries[s], block=decode_block(code, s)))
+        except DTEError as e:
+            out.append(Routine(s, end, entries[s], error=str(e)))
+    return out
+
+
+def _hexbytes(code, p, size, width=8):
+    raw = code[p:p + size]
+    txt = " ".join("%02x" % b for b in raw[:width])
+    return txt + (" .." if size > width else "")
+
+
+def _render(mission, code, routine, p, insn, names):
+    op, size, args, targets = insn
+    name = OPCODES[op][0]
+    parts, globals_, ships = names
+    b = routine.block
+    detail = ""
     if op == 0x21:
-        nm, _va, params = EXEC_BY_IDX.get(val, ("?", None, ()))
-        return "21 %02X  Exec %-26s (%d params)" % (val, nm, len(params))
-    if op == 0x32:
-        return "32 %02X  AI   %s" % (val, AI_CODES.get(val, "?"))
-    if op == 0x22:
-        return "22 %02X  -- part %d --" % (val, val)
-    if op == 0x4D:
-        return "4D %02X  jump-> part %d" % (val, val)
-    if op == 0x2A:
-        return "2A %02X  PlaySpeech idx=%d" % (val, val)
-    if op == 0x2C:
-        return "2C %02X  object ref %d" % (val, val)
-    if op == 0x2D:
-        return "2D %02X  flight-group ref %d" % (val, val)
-    if op == 0x27:
-        return "27 %02X  read global[%d]" % (val, val)
-    if op == 0x40:
-        return "40 %02X  &global[%d] (write)" % (val, val)
-    if op == 0x3F:
-        return "3F %02X  &array[%d] / jump" % (val, val)
-    if op == 0x28:
-        return "28 %02X  wait/operand %d" % (val, val)
-    if op in (0x23, 0x24):
-        return "%02X %04X  push imm 0x%04X" % (op, val, val)
-    if op == 0x02:
-        return "02     cmp !="
-    if op == 0x03:
-        return "03     cmp =="
-    if op == 0x43:
-        return "43     <line end>"
-    if op == 0x14:
-        return "14     squad/membership test"
-    if op == 0x42:
-        return "42 %02X  (op 0x42)" % val
-    return "%02X     <op 0x%02X>" % (op, op)
+        nm, _va, prm = EXEC_BY_IDX.get(args[0], ("?", None, ()))
+        detail = "%-4d %s" % (args[0], nm)
+    elif op == 0x4F:
+        detail = "%-4d (AI-function catalogue; the retail dispatcher is a stub)" % args[0]
+    elif op in (0x22, 0x4D):
+        detail = "%-4d %s" % (args[0], parts.get(args[0], "?"))
+    elif op in (0x4A, 0x4E):
+        detail = "%-4d (second part table; section 17)" % args[0]
+    elif op in (0x27, 0x40):
+        detail = "%-4d %s" % (args[0], globals_.get(args[0], "?"))
+    elif op in (0x28, 0x29):
+        a = b.end + 4 * args[0]
+        val = struct.unpack_from("<I", code, a)[0] if a + 4 <= len(code) else None
+        detail = "= %s" % (val if val is not None else "?")
+    elif op in (0x2C, 0x52):
+        detail = "%-4d %s" % (args[0], ships.get(args[0], "?"))
+    elif op in (0x47, 0x55):
+        detail = "%-4d %s, component %d" % (args[0], ships.get(args[0], "?"), args[1])
+    elif op in (0x2A, 0x2B):
+        detail = repr(args[0])
+    elif op in (0x23, 0x24, 0x42):
+        detail = "-> %d" % targets[0]
+    elif op == 0x51:
+        default, arms = args
+        detail = "default -> %d; " % (p + default) + "; ".join(
+            "roll < %d -> %s" % (thr, "default" if t == 0xFFFF else p + t) for t, thr, _u in arms)
+    elif op == 0x4B:
+        c = args[0]
+        detail = "%s, value %d, object %d" % (TT_TRIGGERS[c] if c < len(TT_TRIGGERS) else c,
+                                               args[1], args[2])
+    elif args:
+        detail = " ".join(str(a) for a in args)
+    return "  %6d  %-24s %-20s %s" % (p, _hexbytes(code, p, size), name, detail)
+
+
+def disasm_script(mission, limit=0):
+    """Yield the listing of every routine in the script, control flow followed."""
+    code = mission.script()
+    parts = {p["i"]: p["name"] for p in mission.parts()}
+    globals_ = {g["i"]: g["name"] for g in mission.globals()}
+    ships = {s["i"]: s["name"] for s in mission.ships()}
+    trig = {t["i"]: t for t in mission.triggers()}
+    plist = list(mission.parts())
+    subj = mission.object_names()
+    names = (parts, globals_, ships)
+    routines = script_routines(mission)
+    for n, r in enumerate(routines):
+        if limit and n >= limit:
+            yield "  ... (%d more routines; --limit 0 shows all)" % (len(routines) - n)
+            return
+        who = []
+        for kind, i in r.owners:
+            if kind == "part":
+                who.append("part %d %s (%d args)" % (i, plist[i]["name"], plist[i]["argc"]))
+            else:
+                t = trig[i]
+                c = t["condition"]
+                who.append("trigger %d: %s on %s" % (
+                    i, TT_TRIGGERS[c] if c < len(TT_TRIGGERS) else "0x%02X" % c,
+                    subj.get(t["subject"], "object %s" % t["subject"])))
+        yield ""
+        yield "%d to %d: %s" % (r.start, r.end, "; ".join(who))
+        if r.error:
+            yield "  !! %s" % r.error
+            continue
+        for p in sorted(r.block.insns):
+            yield _render(mission, code, r, p, r.block.insns[p], names)
+        for a, z in r.block.gaps:
+            yield "  %6d  (%d bytes nothing reaches)" % (a, z - a)
+        for a, z in r.block.slack:
+            yield "  %6d  (%d bytes: unused slots of the random_branch arm table before them; never read)" % (a, z - a)
+        if r.block.falls_off:
+            yield "          (a path runs into the block's limit, which ends the thread)"
+        consts = r.constants(code)
+        if consts:
+            yield "  constants: " + " ".join(str(c) for c in consts)
 
 
 # --------------------------------------------------------------------------- #
@@ -620,7 +1015,7 @@ def merged_exec():
 def cmd_ref(args):
     what = args.table
     if what in ("triggers", "all"):
-        print("# Trigger conditions (TT_*) -- script value at trigger-record +0x15")
+        print("# Trigger conditions (TT_*) -- trigger-record +0x00 (+0x15 is the qualifier)")
         for i, t in enumerate(TT_TRIGGERS):
             print("  0x%02X  %s" % (i, t))
         print()
@@ -638,20 +1033,28 @@ def cmd_ref(args):
                     print("  0x%02X  %-30s %s" % (idx, name, " | ".join(params)))
         print()
     if what in ("ai", "all"):
-        print("# AI behaviour codes (script opcode 0x32 <index>)")
+        print("# AI modes -- values of SetAI's 'AI Mode' parameter (pushed with push_byte 0x32)")
         for i in range(max(AI_CODES) + 1):
             print("  0x%02X  %s" % (i, AI_CODES.get(i, "?")))
         print()
     if what in ("stream", "all"):
-        print("# Script-stream / expression opcodes")
-        for op, desc, kind in STREAM_OPS:
-            print("  %-12s %-10s %s" % (op, "[%s]" % kind, desc))
+        print("# Script VM opcodes -- handler table DAT_004F6350; every width read from its handler")
+        print("  op    name                 operands  flow     handler")
+        for op in sorted(OPCODES):
+            name, form, flow, va = OPCODES[op]
+            print("  0x%02X  %-20s %-9s %-8s 0x%06X%s" % (
+                op, name, form or "-", flow, va, "  (vestigial AI layer)" if op in B_LAYER else ""))
         print()
+
+
+def load_mission(raw):
+    """A HOG member (RefPack, ``10 FB``) or a loose ``missions\\*.dte`` (raw image)."""
+    return Mission(raw) if raw[1:2] == b"\xfb" else Mission.from_image(raw)
 
 
 def cmd_decode(args):
     try:
-        mis = Mission(open(args.file, "rb").read())
+        mis = load_mission(open(args.file, "rb").read())
     except DTEError as e:
         print("ERROR: %s" % e, file=sys.stderr)
         return 2
@@ -671,28 +1074,44 @@ def cmd_decode(args):
                   % (k, label, dat, cnt, st, offs, "  +reloc0x%X" % fl if fl else ""))
 
     if only in (None, "ships"):
-        print("\n# ships / flight groups  (slot 3, stride 0x4C, n=%d)" % mis.count(3))
+        print("\n# ships  (slot 3, stride 0x4C, n=%d)" % mis.count(3))
         for s in _head(mis.ships(), args.limit):
             x, y, z = s["pos"]
             yaw, pitch, roll = s["orient"]
-            print("  [%3d] fg=%-4d %-22s pos=(%11.1f,%9.1f,%11.1f) rot=(%4d,%4d,%4d)deg iff=0x%02X type=0x%03X"
-                  % (s["i"], s["fg"], '"%s"' % s["name"], x, y, z, yaw, pitch, roll, s["iff"], s["type"]))
+            print("  [%3d] id=%-4d fg=%-3s %-22s pos=(%11.1f,%9.1f,%11.1f) rot=(%4d,%4d,%4d)deg iff=0x%02X type=0x%03X"
+                  % (s["i"], s["id"], "-" if s["fg"] == 0xFF else s["fg"], '"%s"' % s["name"],
+                     x, y, z, yaw, pitch, roll, s["iff"], s["type"]))
 
     if only in (None, "fg"):
-        print("\n# FG/objective table  (slot 4, stride 0x14, n=%d)" % mis.count(4))
+        print("\n# flight groups  (slot 4, stride 0x14, n=%d)" % mis.count(4))
         for r in _head(mis.fg_records(), args.limit):
             print("  [%2d] id=0x%X ref=0x%04X f8=0x%X f12=0x%X  txt=%r"
                   % (r["i"], r["id"], r["ref"], r["f8"], r["f12"], mis.string(r["ref"] & 0xFFFF)[:32]))
 
     if only in (None, "triggers"):
         print("\n# triggers  (slot 5, stride 0x30, n=%d)" % mis.count(5))
+        subj = mis.object_names()
         for t in _head(mis.triggers(), args.limit):
-            print("  [%2d] b0=0x%02X b1=0x%02X b2=0x%02X  fields=%s"
-                  % (t["i"], t["b0"], t["b1"], t["b2"], " ".join("%04X" % v for v in t["fields"])))
+            c = t["condition"]
+            print("  [%3d] %-30s on %-34s link=%-6s qual=%-4s repeat=%d run=%d"
+                  % (t["i"], TT_TRIGGERS[c] if c < len(TT_TRIGGERS) else "0x%02X" % c,
+                     subj.get(t["subject"], "(no slice holds it)") if t["subject"] is not None
+                     else "(no slice holds it)",
+                     "-" if t["link"] == 0xFFFF else t["link"] * 2,
+                     "-" if t["qualifier"] == 0xFF else t["qualifier"], t["repeat"], t["run"]))
+
+    if only in (None, "parts"):
+        print("\n# parts  (slot 8, stride 0x1C, n=%d)  offsets and sizes in script bytes"
+              % mis.count(8))
+        print("    #  offset  bytes  args  flags  name")
+        for p in _head(mis.parts(), args.limit):
+            print("  %3d  %6s  %5d  %4d   0x%02X  %s"
+                  % (p["i"], "-" if p["start"] == 0xFFFF else p["start"] * 2, p["extent"] * 2,
+                     p["argc"], p["flags"], p["name"]))
 
     if only in (None, "script"):
-        print("\n# script bytecode  (slot 6, %d bytes)" % mis.count(6))
-        for line in disasm_script(mis, args.limit if args.limit else 120):
+        print("\n# script  (slot 6: %d halfwords = %d bytes)" % (mis.count(6), 2 * mis.count(6)))
+        for line in disasm_script(mis, args.limit):
             print(line)
     return 0
 
@@ -733,10 +1152,11 @@ def cmd_sweep(args):
     missions = []
     for f in files:
         try:
-            mis = Mission(open(os.path.join(args.dir, f), "rb").read())
+            mis = load_mission(open(os.path.join(args.dir, f), "rb").read())
         except DTEError as e:
             print("  %-16s  FAIL  %s" % (f, e))
             continue
+        mis.filename = f
         missions.append(mis)
         ok = all(off == EMPTY_OFF or off <= len(mis.image) for _, off, _ in mis.dir)
         npass += 1 if ok else 0
@@ -760,6 +1180,71 @@ def cmd_sweep(args):
             print("  [%2d]  %-18s %5s   %5d   %6d   %7d  %s"
                   % (k, label, "0x%02X" % stride if stride else "-",
                      len(present), len(nz), max(counts) if counts else 0, note))
+
+    if getattr(args, "script", False):
+        return _sweep_script(missions)
+
+
+def _sweep_script(missions):
+    """Disassemble every routine of every mission and tally the layout claims."""
+    print("\n# script: control flow followed from every routine's entry")
+    print("  %-16s %8s %9s %6s %6s %5s %5s %7s" %
+          ("file", "routines", "insns", "errors", "gaps", "tile", "ext", "falloff"))
+    tot = Counter()
+    ops = Counter()
+    notes = []
+    for mis in missions:
+        code = mis.script()
+        parts = list(mis.parts())
+        rs = script_routines(mis)
+        row = Counter()
+        covered = 0
+        for r in rs:
+            row["routines"] += 1
+            if r.error:
+                row["errors"] += 1
+                notes.append("%s @%d: %s" % (mis.filename, r.start, r.error))
+                continue
+            b = r.block
+            row["insns"] += len(b.insns)
+            ops.update(op for op, _s, _a, _t in b.insns.values())
+            for a, z in b.gaps:
+                row["gaps"] += 1
+                notes.append("%s @%d: %d unreached bytes at %d..%d"
+                             % (mis.filename, r.start, z - a, a, z))
+            for a, z in b.slack:
+                row["slack"] += 1
+                notes.append("%s @%d: %d bytes of random_branch arm-table slack at %d..%d"
+                             % (mis.filename, r.start, z - a, a, z))
+            row["falloff"] += 1 if b.falls_off else 0
+            chk = r.checks(parts)
+            row["tile_bad"] += 0 if chk.get("tiles", True) else 1
+            row["ext_bad"] += 0 if chk.get("extent", True) else 1
+            covered += r.end - r.start
+        starts_ok = not rs or rs[0].start == 0
+        if not starts_ok or covered != len(code):
+            notes.append("%s: routines cover %d of %d bytes, first at %s"
+                         % (mis.filename, covered, len(code), rs[0].start if rs else "-"))
+            row["tile_bad"] += 1
+        tot.update(row)
+        print("  %-16s %8d %9d %6d %6d %5s %5s %7d" % (
+            mis.filename, row["routines"], row["insns"], row["errors"], row["gaps"],
+            "ok" if not row["tile_bad"] else row["tile_bad"],
+            "ok" if not row["ext_bad"] else row["ext_bad"], row["falloff"]))
+    print("\n%d missions, %d routines, %d instructions: %d decode errors, %d gaps nothing reaches,"
+          % (len(missions), tot["routines"], tot["insns"], tot["errors"], tot["gaps"]))
+    print("%d random_branch arm-table slack regions (unused slots, never read)" % tot["slack"])
+    print("%d routines off the exact tiling, %d parts whose extent disagrees, %d paths into a block limit"
+          % (tot["tile_bad"], tot["ext_bad"], tot["falloff"]))
+    print("\nopcode use across all missions:")
+    for op in sorted(OPCODES):
+        print("  0x%02X  %-20s %7d%s" % (op, OPCODES[op][0], ops[op],
+                                        "  (vestigial AI layer)" if op in B_LAYER else ""))
+    if notes:
+        print("\nnotes:")
+        for n in notes:
+            print("  - " + n)
+    return 1 if tot["errors"] else 0
 
 
 def cmd_roundtrip(args):
@@ -833,13 +1318,15 @@ def main(argv=None):
     p = sub.add_parser("decode", help="decompress + decode a mission")
     p.add_argument("file"); p.add_argument("--limit", type=int, default=40,
                                            help="max records/ops per section (0 = no cap)")
-    p.add_argument("--section", choices=["dir", "ships", "fg", "triggers", "script"],
+    p.add_argument("--section", choices=["dir", "ships", "fg", "triggers", "parts", "script"],
                    help="show only one section")
     p.set_defaults(func=cmd_decode)
     p = sub.add_parser("inspect"); p.add_argument("file")
     p.set_defaults(func=cmd_inspect)
     p = sub.add_parser("sweep"); p.add_argument("dir")
     p.add_argument("--sections", action="store_true", help="also print per-section population + stride check")
+    p.add_argument("--script", action="store_true",
+                   help="also disassemble every routine and check the layout claims")
     p.set_defaults(func=cmd_sweep)
     p = sub.add_parser("roundtrip", help="verify the fixed-capacity editing invariant over a mission folder")
     p.add_argument("dir")

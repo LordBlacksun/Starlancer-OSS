@@ -30,6 +30,10 @@ CHECKS = [
      [sys.executable, os.path.join("tests", "sl_patch_selftest.py")]),
     ("shp model parser self-test",
      [sys.executable, os.path.join("tools", "shp_parse.py"), "--selftest"]),
+    # A hand-assembled mission script: every control-flow form, plus tripwires
+    # proving a misread operand width raises instead of decoding quietly wrong.
+    ("dte script disassembler self-test",
+     [sys.executable, os.path.join("tests", "dte_selftest.py")]),
     # Studio's logic, with no GUI toolkit involved. slstudio_app.py cannot be
     # imported without customtkinter, so before slstudio_core.py existed no check
     # here touched the app at all and the Linux CI leg covered none of it.
