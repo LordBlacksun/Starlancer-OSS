@@ -46,6 +46,39 @@ def main():
     print("parse OK: %d files, archive_size=%d, data_start=0x%X" % (n, asz, ds))
     for name, off, ln in ents:
         print("  %-14s off=0x%X len=%d" % (name, off, ln))
+
+    # pilots.hog and msspeech.hog count one record more than their directory holds: 0xCD filler
+    # past the real records. The parser stops there rather than invent an entry from it.
+    filler = b"\xCD" * 16
+    body = data[16:ds] + filler + data[ds:]
+    phantom = b"BIGF" + struct.pack(">III", 16 + len(body), n + 1, ds + len(filler)) + body
+    _, count, _, real = H.parse(phantom)
+    assert count == n + 1, "the header's own count is still reported: %r" % count
+    assert [e[0] for e in real] == [f[0] for f in files], "phantom entry invented: %r" % (real,)
+
+    # The directory alone is enough to list an archive: CD2.HOG is 535 MB, and listing it
+    # used to read all of it on the window's thread.
+    import tempfile
+    read_toc = getattr(H, "read_toc", None)
+    assert read_toc is not None, "read_toc exists"
+    with tempfile.TemporaryDirectory() as tmp:
+        cut = os.path.join(tmp, "directory_only.hog")
+        with open(cut, "wb") as f:
+            f.write(phantom[:ds + len(filler)])
+        _, _, _, from_disk = read_toc(cut)
+        assert from_disk == real, "read_toc: %r" % (from_disk,)
+
+    # Extracting expands a RefPack member unless asked for it as stored, and keeps the stored
+    # bytes, with the reason, where a stream does not expand.
+    member_payload = getattr(H, "member_payload", None)
+    assert member_payload is not None, "member_payload exists"
+    stream = bytes([0x10, 0xFB, 0x00, 0x00, 0x0C, 0xE0]) + b"abcd" + bytes([0x14, 0x03, 0xFC])
+    assert member_payload(stream, True) == (b"abcdabcdabcd", True, None), "expands a stream"
+    assert member_payload(stream, False) == (stream, False, None), "keeps it as stored on request"
+    assert member_payload(b"plain", True) == (b"plain", False, None), "leaves a plain member"
+    broken = stream[:-4]
+    payload, expanded, error = member_payload(broken, True)
+    assert payload == broken and not expanded and error, "a broken stream stays as stored"
     print("SELFTEST PASSED")
 
 

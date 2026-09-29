@@ -25,6 +25,7 @@ Commands:
 """
 import argparse
 import csv
+import math
 import os
 import struct
 import sys
@@ -52,31 +53,74 @@ SHIP_FIELDS = [
     (0x74, "GunRecharge",     False),
     (0x78, "Ammo",            False),
 ]
+# The damage, flight-time and lock-range labels are the names openreliant's engine code gives
+# these offsets (src/formats/stats.zig, 2026-09-29): a gun's damage is a pair, to shields then
+# to the hull; a missile's range is its speed times its flight time.
 GUN_FIELDS = [
     (0x40, "Range",         True),
-    (0x48, "DamageMin",     True),
-    (0x4C, "DamageMax",     True),
+    (0x48, "ShieldDamage",  True),
+    (0x4C, "HullDamage",    True),
     (0x50, "CyclicRate",    True),
     (0x54, "EnergyPerShot", False),
 ]
 MISSILE_FIELDS = [
     (0x40, "MaxVelocity", True),
-    (0x48, "Range",       True),
+    (0x48, "FlightTime",  True),
     (0x54, "LockTime",    True),
-    (0x5C, "Agility",     False),
+    (0x5C, "LockRange",   True),
 ]
+# The labels those offsets had before; `set` still takes them, so scripts keep working.
+OLD_LABELS = {
+    "gun": {"damagemin": 0x48, "damagemax": 0x4C},
+    "missile": {"range": 0x48, "agility": 0x5C},
+}
+F32_MAX = 3.4028234663852886e38
 
 ALLIANCE_PREFIXES = ("us", "uk", "ger", "jap", "fr", "it")
 COALITION_PREFIXES = ("ussr", "chi", "mid", "arc", "kalan", "sky")
 
 
-def fields_for(path):
+def _table(path):
     base = os.path.basename(path).lower()
     if "gun" in base:
-        return GUN_FIELDS
+        return "gun"
     if "missile" in base:
-        return MISSILE_FIELDS
-    return SHIP_FIELDS
+        return "missile"
+    return "ship"
+
+
+def fields_for(path):
+    return {"gun": GUN_FIELDS, "missile": MISSILE_FIELDS}.get(_table(path), SHIP_FIELDS)
+
+
+def field_offset(path, name):
+    """A field's offset in `path`'s table, by its label, an old label, or a number like 0x48.
+    Raises ValueError for anything else."""
+    fl = name.lower()
+    for off, lbl, _ in fields_for(path):
+        if lbl.lower() == fl:
+            return off
+    old = OLD_LABELS.get(_table(path), {}).get(fl)
+    if old is not None:
+        return old
+    try:
+        off = int(name, 0)
+    except ValueError:
+        raise ValueError(f"no field {name!r}")
+    if not (STAT_BASE <= off < STAT_BASE + NSTATS * 4) or off % 4:
+        raise ValueError(f"bad field offset {name}")
+    return off
+
+
+def parse_value(text):
+    """`text` as a stat value, or ValueError: a finite number a float32 can hold."""
+    try:
+        value = float(text)
+    except (TypeError, ValueError):
+        raise ValueError(f"{text!r} is not a number")
+    if not math.isfinite(value) or abs(value) > F32_MAX:
+        raise ValueError(f"{text!r} is outside what a stat field can hold")
+    return value
 
 
 def load(path):
@@ -109,6 +153,8 @@ def stat(data, i, off):
 
 
 def set_stat(data, i, off, value):
+    if not math.isfinite(value) or abs(value) > F32_MAX:
+        raise ValueError(f"{value!r} is outside what a stat field can hold")
     struct.pack_into("<f", data, i * RECSIZE + off, value)
 
 
@@ -180,24 +226,77 @@ def cmd_set(args):
         sys.exit("refusing to write in place: pass -o <out.bin> (or --inplace)")
     data = load(args.file)
     i = find_record(data, args.record)
-    by_name = {lbl.lower(): off for off, lbl, _ in fields_for(args.file)}
-    fl = args.field.lower()
-    if fl in by_name:
-        off = by_name[fl]
-    else:
-        off = int(args.field, 0)
-        if not (STAT_BASE <= off < STAT_BASE + NSTATS * 4) or off % 4:
-            sys.exit(f"bad field offset {args.field}")
+    try:
+        off = field_offset(args.file, args.field)
+        value = parse_value(args.value)
+    except ValueError as e:
+        sys.exit(str(e))
     old = stat(data, i, off)
-    set_stat(data, i, off, float(args.value))
+    set_stat(data, i, off, value)
     dest = args.file if args.inplace else args.out
     with open(dest, "wb") as fh:
         fh.write(data)
-    print(f"record {i} ({rec_name(data,i)!r})  +0x{off:02X}: {old:g} -> {float(args.value):g}")
+    print(f"record {i} ({rec_name(data,i)!r})  +0x{off:02X}: {old:g} -> {value:g}")
     print(f"wrote {dest}")
 
 
+def selftest():
+    """Field labels and value checks against a synthetic table. No game data is involved."""
+    fails = []
+
+    def check(cond, label):
+        print("  %-4s %s" % ("ok" if cond else "FAIL", label))
+        if not cond:
+            fails.append(label)
+
+    def refuses(fn, *a):
+        try:
+            fn(*a)
+        except ValueError:
+            return True
+        except Exception:                     # noqa: BLE001 - any other raise is the bug
+            return False
+        return False
+
+    print("=== slstats self-test (synthetic table) ===")
+    gun = {off: lbl for off, lbl, _ in GUN_FIELDS}
+    missile = {off: lbl for off, lbl, _ in MISSILE_FIELDS}
+    # the labels openreliant's engine code gives these offsets (src/formats/stats.zig)
+    check(gun.get(0x48) == "ShieldDamage" and gun.get(0x4C) == "HullDamage",
+          "gun 0x48/0x4C are the shield and hull damage")
+    check(missile.get(0x48) == "FlightTime", "missile 0x48 is the flight time")
+    check(missile.get(0x5C) == "LockRange", "missile 0x5C is the lock range")
+
+    parse = globals().get("parse_value")
+    check(parse is not None, "parse_value exists")
+    if parse is not None:
+        check(parse("12.5") == 12.5 and parse("-3") == -3.0, "ordinary numbers parse")
+        for text in ("nan", "inf", "-inf", "1e39", "abc", ""):
+            check(refuses(parse, text), "%r is refused" % text)
+
+    data = bytearray(RECSIZE)
+    set_stat(data, 0, 0x40, 1.0)
+    before = bytes(data)
+    check(refuses(set_stat, data, 0, 0x40, float("nan")) and bytes(data) == before,
+          "set_stat refuses nan and leaves the record untouched")
+    check(refuses(set_stat, data, 0, 0x40, 1e39) and bytes(data) == before,
+          "set_stat refuses 1e39 with a ValueError, not an OverflowError")
+
+    offset = globals().get("field_offset")
+    check(offset is not None, "field_offset exists")
+    if offset is not None:
+        check(offset("gunstats.bin", "ShieldDamage") == 0x48, "a field is found by its label")
+        check(offset("gunstats.bin", "damagemin") == 0x48 and
+              offset("missilestats.bin", "Range") == 0x48 and
+              offset("missilestats.bin", "agility") == 0x5C,
+              "the old labels still work, so scripts using them keep working")
+    print("slstats self-test: %d failed" % len(fails))
+    return 1 if fails else 0
+
+
 def main(argv=None):
+    if (argv if argv is not None else sys.argv[1:])[:1] == ["--selftest"]:
+        return selftest()
     ap = argparse.ArgumentParser(description="Starlancer stat-table (.BIN) editor.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("list"); p.add_argument("file"); p.set_defaults(fn=cmd_list)
@@ -212,4 +311,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

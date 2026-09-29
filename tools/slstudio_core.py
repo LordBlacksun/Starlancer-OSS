@@ -29,9 +29,12 @@ CLI:
     python slstudio_core.py scan <game folder> [--json]
 """
 
+import contextlib
 import io
 import json
 import os
+import shutil
+import stat
 import sys
 import time
 
@@ -93,7 +96,12 @@ def patch_states(exe_path):
         except Exception:
             state, desc = "unknown", ""
         states[defn.id] = (state, desc)
-    man = sl_patch._read_manifest(exe_path)
+    # A manifest cut short or corrupted is set aside: the states above come from the exe's
+    # own bytes, and a scan never raises.
+    try:
+        man = sl_patch._read_manifest(exe_path)
+    except (ValueError, OSError):
+        man = None
     sha_ok = None
     if man:
         try:
@@ -139,12 +147,19 @@ def classify_exe(exe_path, states=None):
                        % (format(size, ","), format(sl_patch.EXPECT_SIZE, ",")))
 
 
+# Every build of the shim reads its settings from this file, so the name is in the DLL's own
+# bytes, and in no other program's dinput.dll (Windows' own has no such string).
+SHIM_MARKER = b"xinput_shim.ini"
+
+
 def shim_status(folder, reference_dll=None):
     """XInput-shim install state. -> (state, has_backup); state in ours/other/absent.
 
-    `reference_dll` is the bundled proxy to compare against. The GUI resolves it
-    through PyInstaller's _MEIPASS, which is why it is passed in rather than
-    looked up here: this module must stay importable outside the frozen app.
+    'ours' is the bundled proxy, `reference_dll`, or any other build of the shim, which
+    names the ini it reads (SHIM_MARKER): a shim an older Studio installed is still ours.
+    The GUI resolves `reference_dll` through PyInstaller's _MEIPASS, which is why it is
+    passed in rather than looked up here: this module must stay importable outside the
+    frozen app.
     """
     if not folder or not os.path.isdir(folder):
         return "absent", False
@@ -153,14 +168,75 @@ def shim_status(folder, reference_dll=None):
     if not os.path.exists(dest):
         return "absent", has_backup
     try:
-        if reference_dll and os.path.exists(reference_dll) and \
-                os.path.getsize(reference_dll) == os.path.getsize(dest):
-            with io.open(reference_dll, "rb") as a, io.open(dest, "rb") as b:
-                if a.read() == b.read():
+        with io.open(dest, "rb") as f:
+            data = f.read()
+        if reference_dll and os.path.exists(reference_dll):
+            with io.open(reference_dll, "rb") as f:
+                if f.read() == data:
                     return "ours", has_backup
+        if SHIM_MARKER in data:
+            return "ours", has_backup
     except OSError:
         pass
     return "other", has_backup
+
+
+def install_shim(folder, bundled_dll, ini_text=None):
+    """Install the XInput shim in `folder`: `bundled_dll` as dinput.dll, and `ini_text`,
+    when given, as xinput_shim.ini. -> whether a dinput.dll was backed up.
+
+    A dinput.dll already there is kept as dinput.dll.xinput-bak, once, and only when it is
+    some other program's. Studio 1.2 backed up whatever it found, so installing twice kept
+    its own shim as "the original", and restoring put the shim back.
+    """
+    dest = os.path.join(folder, "dinput.dll")
+    bak = dest + ".xinput-bak"
+    backed = False
+    if os.path.exists(dest):
+        if not os.path.exists(bak) and shim_status(folder, bundled_dll)[0] == "other":
+            shutil.copyfile(dest, bak)
+            backed = True
+        make_writable(dest)
+    shutil.copyfile(bundled_dll, dest)
+    if ini_text is not None:
+        ini = os.path.join(folder, "xinput_shim.ini")
+        if os.path.exists(ini):
+            make_writable(ini)
+        with io.open(ini, "w", encoding="utf-8") as f:
+            f.write(ini_text)
+    return backed
+
+
+def uninstall_shim(folder, bundled_dll=None):
+    """Remove the XInput shim from `folder`: dinput.dll and xinput_shim.ini. -> the names removed.
+
+    Raises ValueError, removing nothing, where the dinput.dll there is not the shim
+    (shim_status): another program's is never deleted. A backup stays for the user to
+    restore (restore_shim_backup).
+    """
+    dest = os.path.join(folder, "dinput.dll")
+    if os.path.exists(dest) and shim_status(folder, bundled_dll)[0] != "ours":
+        raise ValueError("The dinput.dll in this folder is not the XInput shim, so it was left "
+                         "in place, and so was everything else. Remove it yourself if you mean to.")
+    removed = []
+    for name in ("dinput.dll", "xinput_shim.ini"):
+        path = os.path.join(folder, name)
+        if os.path.exists(path):
+            make_writable(path)
+            os.remove(path)
+            removed.append(name)
+    return removed
+
+
+def restore_shim_backup(folder):
+    """Put dinput.dll.xinput-bak back as dinput.dll, where there is none now.
+    -> whether one was restored."""
+    dest = os.path.join(folder, "dinput.dll")
+    bak = dest + ".xinput-bak"
+    if not os.path.exists(bak) or os.path.exists(dest):
+        return False
+    os.replace(bak, dest)
+    return True
 
 
 def bootvid_status(folder):
@@ -239,6 +315,119 @@ def retire_manifest(exe_path):
     except OSError:
         return None
     return os.path.basename(retired)
+
+
+# ================================================================ safe writes ==
+def parse_resolution(width_text, height_text):
+    """A custom resolution typed as two numbers -> (width, height), or a ValueError that
+    says what is wrong. The range is sl_patch's own, so Studio refuses what it would."""
+    (min_w, min_h), (max_w, max_h) = sl_patch.WS_RANGE
+    try:
+        width, height = int(str(width_text).strip()), int(str(height_text).strip())
+    except ValueError:
+        raise ValueError("Width and height must be whole numbers.")
+    if not (min_w <= width <= max_w and min_h <= height <= max_h):
+        raise ValueError("%dx%d is outside the supported %dx%d to %dx%d."
+                         % (width, height, min_w, min_h, max_w, max_h))
+    return width, height
+
+
+def ensure_stock_backup(exe_path):
+    """The pristine Lancer.exe.bak that the patch step applies from. -> (bak_path, created).
+
+    An existing backup is used only while it is still a stock exe. Without one, the exe
+    is copied, but only if it is stock itself: a patched exe or a SafeDisc loader saved
+    under that name is a backup that lies, which Studio 1.2 made, because it checked the
+    size alone and a patched exe has the stock size. Raises ValueError with the evidence.
+    """
+    bak = exe_path + ".bak"
+    if os.path.exists(bak):
+        kind, evidence = classify_exe(bak)
+        if kind != "stock":
+            raise ValueError("%s is not a stock Lancer.exe (%s), so the fixes cannot be applied "
+                             "from it. Replace it with an original Lancer.exe."
+                             % (os.path.basename(bak), evidence))
+        return bak, False
+    kind, evidence = classify_exe(exe_path)
+    if kind != "stock":
+        raise ValueError("%s is %s (%s), so it cannot be kept as the pristine backup. "
+                         "Put an original Lancer.exe in its place first."
+                         % (os.path.basename(exe_path), kind, evidence))
+    shutil.copyfile(exe_path, bak)
+    return bak, True
+
+
+def make_writable(path):
+    """Clear a file's read-only flag, which files copied off a CD keep. Best effort: if it
+    cannot be cleared, the write that follows raises the PermissionError that says why."""
+    try:
+        os.chmod(path, os.stat(path).st_mode | stat.S_IWRITE)
+    except OSError:
+        pass
+
+
+def copy_writable(src, dst):
+    """shutil.copy2, arriving writable, and over a read-only copy from an earlier run."""
+    if os.path.exists(dst):
+        make_writable(dst)
+    shutil.copy2(src, dst)
+    make_writable(dst)
+    return dst
+
+
+def setup_notes(applied, skipped, wrapper=False):
+    """READ-ME-RUN-ME.txt for a staged build, from what its steps reported: `applied` and
+    `skipped` are lines, a skipped one with its reason, and `wrapper` whether dgVoodoo2 was
+    copied in. Studio 1.2 wrote the notes from the options ticked, so a step that was
+    skipped, such as a shim the build did not bundle, was still listed as applied.
+    """
+    lines = ["STARLANCER — READY-TO-PLAY BUILD",
+             "Assembled by Starlancer Studio. The game was NOT launched during assembly.",
+             "", "Applied:"] + ["  - " + line for line in applied]
+    if skipped:
+        lines += ["", "Skipped:"] + ["  - " + line for line in skipped]
+    lines += ["", "To run (do these yourself — Starlancer Studio never launches the game):",
+              "  1. Enable the legacy DirectPlay Windows feature if you want multiplayer."]
+    step = 2
+    if wrapper:
+        lines.append("  %d. (Optional) Run dgVoodooCpl.exe here to tune the wrapper, then close it."
+                     % step)
+        step += 1
+    lines += ["  %d. Start Lancer.exe." % step, "",
+              "Undo the EXE fixes:  sl_patch.py --verify Lancer.exe   |   --revert Lancer.exe out.exe",
+              "A pristine Lancer.exe.bak is kept next to the patched exe."]
+    return "\n".join(lines) + "\n"
+
+
+# Blanking lives with the blanker (blank_boot_videos.py), which the command line uses too;
+# these are its functions, under the names Studio calls them by.
+blank_loose_logos = bootvid.blank_folder          # -> (blanked, skipped)
+restore_loose_logos = bootvid.restore_folder      # -> restored
+
+
+def run_capturing(fn, *a, **k):
+    """Run a tool function that prints, and may raise SystemExit on a guard.
+    -> (ok, return_code, captured_text).
+
+    A PermissionError is raised again rather than turned into text: it is the one error
+    with an answer a user can act on (clear the file's read-only flag, run elevated, or
+    use a copy outside Program Files), which the GUI's error handler gives.
+    """
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            rc = fn(*a, **k)
+        return True, rc, buf.getvalue()
+    except PermissionError:
+        raise
+    except SystemExit as e:
+        msg = buf.getvalue()
+        s = "" if e.code is None else str(e.code)
+        if s and s != "0":
+            msg = (msg + "\n" + s).strip()
+        return False, None, msg
+    except BaseException as e:                       # noqa: BLE001 - surfaced to the UI
+        return False, None, (buf.getvalue() + "\n" + repr(e)).strip()
 
 
 # ============================================================ install snapshot ==
@@ -490,6 +679,17 @@ def selftest():
               "manifest: kept under a .retired name, not deleted")
         check(retire_manifest(exe) is None, "manifest: retiring twice is a no-op")
         check(scan(game).manifest_is_stale() is False, "manifest: stale flag clears after retiring")
+        # A manifest cut short or corrupted must not stop the scan, which "never raises".
+        for broken in (b"", b"{ not json"):
+            _mk(man, broken)
+            try:
+                inst = scan(game)
+                check(inst.manifest is None and inst.exe_kind == "stock",
+                      "manifest: %s one is set aside, and the rest of the scan stands"
+                      % ("an empty" if not broken else "a corrupt"))
+            except Exception as e:                   # noqa: BLE001 - the bug is any raise
+                check(False, "manifest: scan raised %r on a broken manifest" % (e,))
+        os.remove(man)
 
         # ------------------------------------------------------------- selections
         sel = recommended_selections(1920, 1080)
@@ -522,6 +722,206 @@ def selftest():
         auto = sl_patch.PatchDefinition(id="fix-thing", summary="s", sites=[], build=None,
                                         verify_state=lambda pe, d: "stock")
         check(auto.label == "THING", "registry: a label is derived from the id when omitted")
+
+        # ------------------------------------------------------ resolution input
+        parse_res = globals().get("parse_resolution")
+        check(parse_res is not None, "resolution: parse_resolution exists")
+        if parse_res is not None:
+            check(parse_res("3440", " 1440 ") == (3440, 1440), "resolution: digits parse, spaces trimmed")
+            for w, h in (("abc", "1080"), ("1920.5", "1080"), ("0", "0"), ("1920", "0"), ("", "")):
+                try:
+                    parse_res(w, h)
+                    check(False, "resolution: %r x %r refused" % (w, h))
+                except ValueError as e:
+                    check(bool(str(e)), "resolution: %r x %r refused with a message" % (w, h))
+
+        # --------------------------------------------------- the pristine backup
+        # a test-only fix that reads as applied wherever its marker sits
+        marker = b"TESTPATCHED!"
+        probe = sl_patch.PatchDefinition(
+            id="zz-probe", summary="test-only", sites=[], build=None,
+            verify_state=lambda pe, d: "patched" if marker in bytes(d) else "stock")
+        stock_pe = fake_pe([".text", ".data"], sl_patch.EXPECT_SIZE)
+        patched_pe = stock_pe[:0x300] + marker + stock_pe[0x300 + len(marker):]
+        backup = globals().get("ensure_stock_backup")
+        check(backup is not None, "backup: ensure_stock_backup exists")
+        sl_patch.REGISTRY[probe.id] = probe
+        try:
+            if backup is not None:
+                def refused(exe):
+                    try:
+                        backup(exe)
+                    except ValueError:
+                        return True
+                    return False
+
+                bk = os.path.join(root, "bk")
+                os.mkdir(bk)
+                exe = os.path.join(bk, "Lancer.exe")
+                _mk(exe, stock_pe)
+                bak, created = backup(exe)
+                check(created and open(bak, "rb").read() == stock_pe,
+                      "backup: a stock exe is copied to Lancer.exe.bak")
+                check(backup(exe) == (bak, False), "backup: an existing stock backup is reused")
+                _mk(exe, patched_pe)
+                check(backup(exe) == (bak, False),
+                      "backup: a patched exe with a stock backup is fine (re-patch from the backup)")
+                _mk(bak, patched_pe)
+                check(refused(exe), "backup: a Lancer.exe.bak that is not stock is refused")
+                os.remove(bak)
+                check(refused(exe) and not os.path.exists(bak),
+                      "backup: a patched exe is never saved as the pristine backup")
+                _mk(exe, fake_pe([".text", "stxt774"], 249119))
+                check(refused(exe) and not os.path.exists(bak),
+                      "backup: nor is a SafeDisc loader")
+        finally:
+            del sl_patch.REGISTRY[probe.id]
+
+        # ------------------------------------------------ read-only files copy
+        import stat as _stat
+        copy_w = globals().get("copy_writable")
+        check(copy_w is not None, "copy: copy_writable exists")
+        if copy_w is not None:
+            src = os.path.join(root, "ro_src.hog")
+            dst = os.path.join(root, "ro_dst.hog")
+            _mk(src, b"BIGF data")
+            os.chmod(src, _stat.S_IREAD)
+            copy_w(src, dst)
+            check(os.access(dst, os.W_OK) and open(dst, "rb").read() == b"BIGF data",
+                  "copy: a read-only source arrives as a writable copy")
+            os.chmod(dst, _stat.S_IREAD)
+            copy_w(src, dst)
+            check(os.access(dst, os.W_OK), "copy: a read-only copy from an earlier run is overwritten")
+            os.chmod(src, _stat.S_IWRITE | _stat.S_IREAD)
+
+        # ------------------------------------------------ blanking loose logos
+        blank = globals().get("blank_loose_logos")
+        check(blank is not None, "logos: blank_loose_logos exists")
+        if blank is not None:
+            lg = os.path.join(root, "logos")
+            os.mkdir(lg)
+            movie = bootvid._synthetic_bik(3)
+            _mk(os.path.join(lg, "WARTY_.BIK"), movie)
+            done, skipped = blank(lg, ["warty_.bik", "new_nms.bik"])
+            warty = os.path.join(lg, "WARTY_.BIK")
+            check(done == ["WARTY_.BIK"] and skipped == [],
+                  "logos: the present logo is blanked, the absent one passed over quietly")
+            check(open(warty + ".orig", "rb").read() == movie, "logos: the true original is kept as .orig")
+            check(open(warty, "rb").read() == bootvid.first_frame_bik(movie),
+                  "logos: without a bundled clip, the logo becomes its own first frame")
+            # a folder a v1.2 run left with the zero-frame stub is repaired from the .orig
+            _mk(warty, b"BIKi" + b"\x00" * 44)
+            blank(lg, ["warty_.bik"])
+            check(open(warty, "rb").read() == bootvid.first_frame_bik(movie),
+                  "logos: re-blanking trims the .orig, not the blanked file")
+            check(open(warty + ".orig", "rb").read() == movie, "logos: the .orig is never overwritten")
+            blank(lg, ["warty_.bik"], bundled=b"BUNDLED")
+            check(open(warty, "rb").read() == b"BUNDLED", "logos: a bundled blank clip is used when given")
+            _mk(os.path.join(lg, "new_nms.bik"), b"not a movie")
+            done, skipped = blank(lg, ["new_nms.bik"])
+            check(done == [] and len(skipped) == 1 and "new_nms.bik" in skipped[0],
+                  "logos: a file that is not a movie is left alone and reported")
+            check(open(os.path.join(lg, "new_nms.bik"), "rb").read() == b"not a movie",
+                  "logos: ...untouched")
+            restore = globals().get("restore_loose_logos")
+            check(restore is not None, "logos: restore_loose_logos exists")
+            if restore is not None:
+                check(restore(lg, ["warty_.bik"]) == ["WARTY_.BIK"] and
+                      open(warty, "rb").read() == movie and not os.path.exists(warty + ".orig"),
+                      "logos: restore moves the original back")
+                _mk(os.path.join(lg, "Lancer.exe"), b"")
+                check(bootvid_status(lg)[1] == [],
+                      "logos: a restored logo no longer reads as blanked")
+
+        # ------------------------------------------------------ the XInput shim
+        sh = os.path.join(root, "shim")
+        os.mkdir(sh)
+        bundled = os.path.join(root, "bundled_dinput.dll")
+        _mk(bundled, b"MZ ours, new build; reads xinput_shim.ini")
+        older = b"MZ ours, an older build; reads xinput_shim.ini"
+        foreign = b"MZ somebody else's dinput"
+        dll = os.path.join(sh, "dinput.dll")
+        bak = dll + ".xinput-bak"
+        _mk(dll, older)
+        check(shim_status(sh, bundled)[0] == "ours",
+              "shim: an older build of ours is still ours, by the ini name it reads")
+        install = globals().get("install_shim")
+        uninstall = globals().get("uninstall_shim")
+        restore_bak = globals().get("restore_shim_backup")
+        check(install is not None and uninstall is not None and restore_bak is not None,
+              "shim: install_shim, uninstall_shim and restore_shim_backup exist")
+        if install is not None and uninstall is not None and restore_bak is not None:
+            check(install(sh, bundled, "[shim]\n") is False and not os.path.exists(bak),
+                  "shim: reinstalling over our own shim keeps no 'original' of it")
+            check(open(dll, "rb").read() == open(bundled, "rb").read() and
+                  open(os.path.join(sh, "xinput_shim.ini")).read() == "[shim]\n",
+                  "shim: the bundled dll and the ini are written")
+            _mk(dll, foreign)
+            check(install(sh, bundled, None) is True and open(bak, "rb").read() == foreign,
+                  "shim: somebody else's dinput.dll is kept as the backup")
+            check(install(sh, bundled, None) is False and open(bak, "rb").read() == foreign,
+                  "shim: a second install keeps that backup, not our shim")
+
+            removed = uninstall(sh, bundled)
+            check(sorted(removed) == ["dinput.dll", "xinput_shim.ini"] and not os.path.exists(dll),
+                  "shim: uninstall removes our dll and its ini")
+            check(os.path.exists(bak), "shim: uninstall leaves the backup for the user to restore")
+            check(restore_bak(sh) is True and open(dll, "rb").read() == foreign
+                  and not os.path.exists(bak), "shim: restoring puts the original back")
+            try:
+                uninstall(sh, bundled)
+                check(False, "shim: uninstall refuses somebody else's dinput.dll")
+            except ValueError:
+                check(open(dll, "rb").read() == foreign,
+                      "shim: uninstall refuses somebody else's dinput.dll, and leaves it")
+            os.remove(dll)
+            _mk(os.path.join(sh, "xinput_shim.ini"), b"[shim]\n")
+            check(uninstall(sh, bundled) == ["xinput_shim.ini"],
+                  "shim: a leftover ini alone is removed")
+
+        # ------------------------------------------------------- the setup notes
+        notes = globals().get("setup_notes")
+        check(notes is not None, "notes: setup_notes exists")
+        if notes is not None:
+            text = notes(["EXE fixes: widescreen 3440x1440", "Boot logos blanked: warty_.bik"],
+                         ["XInput controller shim: bundled dinput.dll missing"])
+            applied_part, _, rest = text.partition("Skipped")
+            check("EXE fixes: widescreen 3440x1440" in applied_part and "warty_.bik" in applied_part,
+                  "notes: what was applied is listed as applied")
+            check("controller shim" not in applied_part.lower() and "dinput.dll missing" in rest,
+                  "notes: a skipped step is listed as skipped, with its reason, not as applied")
+            check("dgVoodooCpl" not in text, "notes: no advice about a wrapper that was not installed")
+            check("dgVoodooCpl" in notes(["dgVoodoo2 wrapper: DDraw.dll"], [], wrapper=True),
+                  "notes: the wrapper's advice appears when it was installed")
+
+        # ------------------------------------------ tool calls and their errors
+        capture = globals().get("run_capturing")
+        check(capture is not None, "capture: run_capturing exists")
+        if capture is not None:
+            def prints_five():
+                print("hello")
+                return 5
+
+            def refuses():
+                raise SystemExit("refusing: nope")
+
+            def breaks():
+                raise ValueError("boom")
+
+            def denied():
+                raise PermissionError(13, "Permission denied", "Lancer.exe")
+
+            ok, rc, text = capture(prints_five)
+            check(ok and rc == 5 and "hello" in text, "capture: output and return value kept")
+            ok, rc, text = capture(refuses)
+            check(not ok and "refusing: nope" in text, "capture: a tool's refusal is reported")
+            ok, rc, text = capture(breaks)
+            check(not ok and "boom" in text, "capture: an error is reported as text")
+            try:
+                capture(denied)
+                check(False, "capture: PermissionError reaches the caller")
+            except PermissionError:
+                check(True, "capture: PermissionError reaches the caller, for the actionable message")
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

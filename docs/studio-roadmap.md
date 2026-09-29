@@ -280,7 +280,7 @@ updates the `Tiger …` twin record found by name.
   fires.
 - **Frozen build without the optional bundles.** `install_shim` reports "not bundled in this
   build" with the `build.bat` note; `blank_logos` says which replacement bytes it will use
-  (bundled clip or the generated stub), as today.
+  (bundled clip, or each clip's own first frame since 1.3).
 - **Corrupt or foreign files.** `shp_parse.SHPError`, `dte_parse.DTEError` and `ValueError` from the
   HOG parser are caught in core and shown as one red line; the section stays usable.
 - **Long operations.** Decode of the largest model is ~115 ms and of a mission ~40 ms *(measured)*,

@@ -272,6 +272,16 @@ def _run_body(tmp):
     finally:
         del SL.REGISTRY["fps"]
 
+    # an impossible resolution is refused before anything is written: Studio's
+    # Custom field once let 0x0 through, and apply() baked it into the exe
+    for w, h in ((0, 0), (1920, 0), (100, 100), (10000, 1080)):
+        bad = os.path.join(tmp, f"bad_{w}x{h}.exe")
+        try:
+            SL.apply(src, bad, [("widescreen", dict(width=w, height=h))])
+            check(False, f"widescreen {w}x{h} should have been refused")
+        except SystemExit:
+            check(not os.path.exists(bad), f"widescreen {w}x{h} refused, nothing written")
+
     print(f"\nsl_patch selftest: {PASS} passed, {FAIL} failed")
     return 0 if FAIL == 0 else 1
 

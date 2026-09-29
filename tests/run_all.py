@@ -39,6 +39,14 @@ CHECKS = [
     # here touched the app at all and the Linux CI leg covered none of it.
     ("studio core self-test (headless)",
      [sys.executable, os.path.join("tools", "slstudio_core.py"), "selftest"]),
+    # A logo is replaced by its own first frame, a movie every Bink reader plays,
+    # checked against openreliant's reader rules on synthetic movies.
+    ("boot-video blanker self-test (synthetic movies)",
+     [sys.executable, os.path.join("tools", "blank_boot_videos.py"), "--selftest"]),
+    # Stat labels as openreliant's engine code names them; values a float32 cannot
+    # hold are refused before anything is written.
+    ("stat editor self-test (synthetic table)",
+     [sys.executable, os.path.join("tools", "slstats.py"), "--selftest"]),
     # Skips itself cleanly when unicorn is absent, so CI legs without the optional
     # dependency stay green while machines that have it verify the harness.
     ("emulation harness self-test (synthetic program)",

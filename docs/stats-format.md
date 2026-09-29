@@ -72,21 +72,35 @@ Gun/missile records reuse the same 352-byte frame with weapon-specific `stats[]`
 | Off | Field | Evidence |
 |---|---|---|
 | 0x40 | Range | Vulcan 300→140 ("range→140") |
-| 0x48 | DamageMin | Proton 12→30 ("damage ~30-35") |
-| 0x4C | DamageMax | Proton 11→35 |
-| 0x50 | **CyclicRate** (fire rate) | Proton 6→10 *and* Vulcan 2→10 ("5× cyclic") — confirmed by two mods |
-| 0x54 | energy/heat per shot *(?)* | Proton 3→2 |
+| 0x44 | shot speed | openreliant's engine code (`Gun.speed`) |
+| 0x48 | **ShieldDamage** | Proton 12→30 ("damage ~30-35"); named by openreliant's engine code — *corrected 2026-09-29, was "DamageMin"* |
+| 0x4C | **HullDamage** | Proton 11→35; named by openreliant's engine code — *corrected 2026-09-29, was "DamageMax"* |
+| 0x50 | **CyclicRate** (fire rate) | Proton 6→10 *and* Vulcan 2→10 ("5× cyclic") — confirmed by two mods; the refire interval is 100 / rate ticks (openreliant) |
+| 0x54 | energy per shot | Proton 3→2; openreliant's `Gun.shot_energy` |
+
+A gun's damage is a pair, not a range: what a hit does to shields, then to the hull
+(openreliant's `Damage { shield, hull }`, whose ratio is the share of what passes a shield that
+the hull takes). Our earlier Min/Max reading fitted the Proton mod's numbers but not the code.
 
 **`missilestats.bin`** — 16 missiles (Screamer/Raptor/Havoc/JackHammer/Bandit/Vagabond/Solomon/Hawk/Torpedo/…):
 
 | Off | Field | Evidence |
 |---|---|---|
 | 0x40 | MaxVelocity | Raptor 500→600 ("max velocity") |
-| 0x48 | Range | Solomon 60→120 (clean single-field, "twice the range") |
-| 0x54 | LockTime | Raptor 300→100 ("lock instantly" — lower = faster) |
-| 0x5C | agility / secondary range *(?)* | Raptor 1.6e5→3e5 |
+| 0x44 | turn rate | openreliant's engine code (`Missile.turn_rate`) |
+| 0x48 | **FlightTime** | Solomon 60→120 ("twice the range"): the range is speed × flight time, so doubling this doubles it — *corrected 2026-09-29, was "Range"* |
+| 0x4C / 0x50 | shield / hull damage | openreliant's engine code (`Missile.damage`) |
+| 0x54 | LockTime | Raptor 300→100 ("lock instantly" — lower = faster); 0.01 s a unit (openreliant) |
+| 0x58 | decoy chance | openreliant's engine code |
+| 0x5C | **LockRange** | Raptor 1.6e5→3e5; named by openreliant's engine code — *corrected 2026-09-29, was "agility / secondary range (?)"* |
+| 0x60 | component damage | openreliant's engine code |
 
-Gun fields are solid; missile velocity/range/lock-time are confident, the rest provisional (confirm via exe RE).
+Gun and missile fields are now named from openreliant's engine code
+([`src/formats/stats.zig`](https://github.com/vdmkenny/openreliant/blob/main/src/formats/stats.zig)),
+which ports the game's own reads of them; every field our hexcheat diffs touched is consistent
+with those names. `slstats.py`
+edits the fields in the tables above that it has always exposed, under these names, and still
+accepts the old labels on its command line.
 
 ## Factions & variants (ships)
 Faction is encoded as the **name prefix**: Alliance = `Us`/`Uk`/`Ger`/`Jap`/`Fr`/`It`; Coalition = `Ussr`/`Chi`/`Mid`/`Arc`/`Kalan`/`Sky`. The roster spans fighters (recs ~0–11), capital ships, debris/corpses, planets, torpedoes, then the **`Tiger …` 45th-squadron variants at the end** (e.g. `Us Predator` rec 0 ↔ `Tiger Us Predator` rec 244) — matching the hexcheat readme ("the data … changes to definitions found at the end of the bin-file"). This faction tagging is what makes the **Coalition ship-switcher** (goal #3) a data-layer edit: a Coalition fighter (e.g. `Ussr Basilisk`, rec 49) is a normal record.

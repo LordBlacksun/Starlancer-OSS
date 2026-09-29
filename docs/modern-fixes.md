@@ -33,9 +33,10 @@ intro is `new_intro.bik`. In a **retail install** these three logos are **loose 
 game folder** (installed from `LANCER.CAB`) — verified **not** present in `resource.hog`, `CD1.HOG`,
 or `CD2.HOG` — so the game plays them from the folder. *(Our decompile noted a `0x800000` Bink
 resource flag, but with the logos absent from every HOG the clips resolve to the loose files; only
-`new_intro.bik` actually lives in a HOG — `CD2.HOG`.)* The shared play loop (`0x004AC510`) tolerates a
-**missing or zero-frame** movie — `BinkOpen` returns NULL (logged, non-fatal) or the end flag trips on
-frame 0 — so the engine simply moves on; every frame also polls input, so **any keypress already
+`new_intro.bik` actually lives in a HOG — `CD2.HOG` — and it is the campaign's story intro, not a
+startup movie.)* The shared play loop (`0x004AC510`) reads as tolerating a **missing or zero-frame**
+movie — `BinkOpen` returns NULL (logged, non-fatal) or the end flag trips on frame 0 — *(read
+statically, never observed; our tools no longer rely on it)*; every frame also polls input, so **any keypress already
 aborts** a playing clip. *(Logo↔name mapping by static inference — `warty_`=Warthog, `new_dalogo`="da
 logo"=Digital Anvil, `new_nms`=the only remaining startup logo=Microsoft Game Studios. `FUN_004ABDE0`
 is the related per-**chapter** intro/landing sequencer, not the logo player.)*
@@ -49,18 +50,24 @@ game folder with a blank Bink, keeping backups:
    of `new_dalogo_fs_uncmpr.bik`, `new_nms.bik`, `warty_.bik`. Leave `splash to mm.bik` /
    `new_intro.bik` if you want the splash/intro. To restore a logo, swap its `.orig` back.
 
-**Alternative (HOG builds).** If your build instead keeps the logos *inside* a HOG, blank them in the
-archive with our tool (version-matched zero-frame Bink; verifies a byte-exact round-trip except the
-swapped clips):
+**Or with our tool**, which does the same to the same three files, in the game folder. Without a
+`blank.bik` it cuts each logo to its own first frame: a real one-frame Bink, over in a fifteenth of a
+second, that every Bink reader plays, openreliant's included. Starlancer Studio's **Boot Videos**
+section does the same.
 
 ```sh
-python tools/blank_boot_videos.py list  <your.hog>                     # show the startup clips + roles
-python tools/blank_boot_videos.py blank <your.hog> -o out_nologo.hog   # blank the 3 logos only (default)
-python tools/blank_boot_videos.py blank <your.hog> -o out_nologo.hog --include-splash --include-intro
+python tools/blank_boot_videos.py list    <game folder>                  # the startup movies, blanked or not
+python tools/blank_boot_videos.py blank   <game folder>                  # the 3 logos (add --include-splash)
+python tools/blank_boot_videos.py blank   <game folder> --blank blank.bik  # esc0rtd3w's clip instead
+python tools/blank_boot_videos.py restore <game folder>                  # put the originals back
 ```
 
-**Layer:** DATA. **Source:** loose-file method = PCGamingWiki / esc0rtd3w; HOG fallback + the
-tolerance/filename RE = our decompilation (`engine-map.md` §6). Logo location verified 2026-06-12.
+There is no HOG method: no startup movie is inside a HOG. *(The tool and Studio once offered one, on
+the belief that the logos lived in `CD1.HOG`/`CD2.HOG`; they never have. Corrected 2026-09-29.)*
+
+**Layer:** DATA. **Source:** loose-file method = PCGamingWiki / esc0rtd3w; filename RE = our
+decompilation (`engine-map.md` §6). Logo location verified 2026-06-12, and again against every retail
+HOG 2026-09-29.
 
 ---
 

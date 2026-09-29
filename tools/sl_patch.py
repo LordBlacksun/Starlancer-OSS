@@ -205,8 +205,16 @@ def _ws_build_res_cave(cave_va, width, height):
     return bytes(b)
 
 
+WS_RANGE = ((320, 240), (7680, 4320))   # sane (min, max) width x height
+
+
 def _ws_build(pe, params, alloc):
     width, height = params["width"], params["height"]
+    (min_w, min_h), (max_w, max_h) = WS_RANGE
+    if not (isinstance(width, int) and isinstance(height, int)
+            and min_w <= width <= max_w and min_h <= height <= max_h):
+        raise SystemExit(f"refusing: widescreen {width}x{height} is outside "
+                         f"{min_w}x{min_h}..{max_w}x{max_h}.")
     # FOV cave first, then RES cave - allocate the ACTUAL cave lengths so the
     # layout reproduces ws_patch v1 byte-for-byte: fov(32B) at base, res(25B) at
     # align_up(base+32,16) == base+32. (Cave length is VA-independent, so we can
@@ -769,8 +777,6 @@ def main(argv):
     selections = []
     if a.widescreen:
         w, h = a.widescreen
-        if not (320 <= w <= 7680 and 240 <= h <= 4320):
-            print(f"warning: {w}x{h} is outside the sane 320x240..7680x4320 range", file=sys.stderr)
         selections.append(("widescreen", dict(width=w, height=h)))
     if a.fps is not None:
         # Backed by static RE: there is no safe in-EXE frame-cap patch (the 100 Hz
