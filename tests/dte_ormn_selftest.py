@@ -3,8 +3,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Self-test for OpenReliant's mission name in tools/dte_parse.py.
 
-OpenReliant keeps a mission's name in section 21, which the game binds and
-never reads (docs/dte-format.md section 10.1).  This test takes the synthetic
+OpenReliant stores a mission's name in section 21, a slot the game's loader
+skips: it copies the slot's directory entry into a local that nothing reads
+(docs/dte-format.md section 10.1).  This test takes the synthetic
 mission of dte_selftest.py and gives it a section 21 the way OpenReliant's
 writer does: appended after the image's end, with the directory pointing at
 it.  It checks that dte_parse shows a well-formed name, reports each malformed
@@ -31,7 +32,7 @@ LABEL = "mission name (OpenReliant, section 21): "
 
 
 def ormn(name, version=1, length=None, nul=b"\0"):
-    """Section 21's bytes: the tag, the version, the name's length in bytes, the name, `nul`."""
+    """Section 21's bytes: the tag, the version, how many bytes the name takes, the name, `nul`."""
     raw = name.encode("utf-8") if isinstance(name, str) else name
     return (b"ORMN" + struct.pack("<HH", version, len(raw) if length is None else length)
             + raw + nul)
@@ -172,7 +173,8 @@ def check_count_ends_the_section_before_trailing_bytes():
 
 
 def check_count_ends_the_section_before_the_name_does():
-    # The name fits in the image but not in the count: OpenReliant shows no name, nor do we.
+    # The image holds the whole name, but the count stops three bytes short of it:
+    # OpenReliant shows no name then, and neither do we.
     blob = ormn("Sandbox")
     image = with_section21(blob, count=len(blob) - 3)
     info = name_of(image)

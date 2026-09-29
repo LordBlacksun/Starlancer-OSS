@@ -35,8 +35,8 @@ The semantic tables (trigger enum, Executor commands, AI codes, stream opcodes) 
   observed in-game semantics.
 * **openreliant** (github.com/vdmkenny/openreliant, docs/formats/dte.md): the
   opcode names, and the part and routine layout, each re-read here against the exe.
-  Also its own convention for a mission's name, kept in section 21 (``ORMN``),
-  which the game never reads; ``decode`` and ``sweep`` show it where a mission has one.
+  Also the mission name OpenReliant stores in section 21 (``ORMN``), a slot the
+  loader skips; ``decode`` and ``sweep`` show it where a mission has one.
 
 The script listing follows control flow from every routine's entry -- the parts
 of section 8 and the triggers some object's slice holds -- rather than sweeping,
@@ -355,13 +355,14 @@ def refpack_decompress(data):
 # --------------------------------------------------------------------------- #
 #  OpenReliant's mission name -- section 21.                                   #
 # --------------------------------------------------------------------------- #
-# The loader FUN_00451D90 reads slot 21's directory entry into a stack local,
+# The loader FUN_00451D90 copies slot 21's directory entry into a stack local,
 # local_e, that nothing reads afterwards, and never touches the section's bytes;
-# every shipped mission leaves the count 0.  OpenReliant uses the slot for a name
-# of its own (docs/formats/dte.md, "OpenReliant's mission name"): the count is the
-# section's size in bytes, which opens with the tag ORMN, a u16 version (1) and a
-# u16 length of the name in bytes, then the UTF-8 name and a NUL.  Its writer puts
-# the section after the template's end, since the template gives it no room.
+# the count is 0 in all 44 shipped missions.  OpenReliant stores a mission name in
+# the slot (its docs/formats/dte.md, "OpenReliant's mission name"; our
+# docs/dte-format.md section 10.1).  There the count measures bytes, not records:
+# 8 header bytes (ORMN, u16 version 1, u16 name length), the UTF-8 name, a 0 byte.
+# No shipped template spares room for it, so OpenReliant appends the section to
+# the end of the image.
 ORMN_SLOT = 21
 ORMN_TAG = b"ORMN"
 ORMN_VERSION = 1

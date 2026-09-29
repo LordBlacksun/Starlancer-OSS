@@ -28,8 +28,8 @@ never native code. `resource.hog` holds **44** of them (campaign `mission1..35`,
 campaign template is `0xCFBE7` = 850,919 B). `dte_parse.py sweep` decodes all **44** cleanly
 (`--script` disassembles every routine of every mission and checks the layout);
 `dte_parse.py decode <m>` dumps the directory, ships, flight groups, triggers, parts, and the
-script, control flow followed, and shows the name OpenReliant keeps in section 21 where a mission
-has one (§10.1).
+script, control flow followed, plus, where a mission has one, the name OpenReliant stores in
+section 21 (§10.1).
 
 Path at load: `..\missions\%s.dte`. The engine reads a loose `missions\` file if present, else
 the HOG copy — so edited missions need not be repacked.
@@ -104,7 +104,7 @@ to a live pointer (`offset + image base`). `offset == 0xFFFF` marks an unused se
 | 18 | `DAT_00525FB4` | vestigial — empty in all 44. **Bytecode of the AI layer**: `FUN_00453020` bases any part descriptor outside section 8 here instead of section 6 |
 | 19 | `DAT_0052950C` | vestigial — empty in all 44 |
 | 20 | `DAT_00525FA0` | vestigial — empty in all 44 |
-| 21 | (stack temp) | transient (count only): `FUN_00451D90` reads the entry into a stack local, `local_e`, that nothing reads, and never touches the section's bytes. Count 0 and no room of its own in all 44. **OpenReliant keeps a mission name here** (§10.1) |
+| 21 | (stack temp) | transient (count only): `FUN_00451D90` reads the entry into a stack local, `local_e`, that nothing reads, and never touches the section's bytes. Count 0 in all 44, and never any space reserved for it. **OpenReliant stores a mission name here** (§10.1) |
 | 22 | `DAT_00525278` | operand-resolution array (kind 1) ✓ stride `2` (large: ≤ 61436) |
 | 23 | `PTR_DAT_004EE7D8` | populated 40/44; record layout TBD |
 | 24 | `DAT_00525F9C` | **per-command flag words** ✓ stride `2`: one `u16` per Executor command. The `0x21` handler (`0x45BEA0`) reads entry `i`, inverts bit 0 and stores it at `DAT_00537584` before calling command `i` (verified); what the flags mean is open (openreliant: cumulative masks such as 1, 3, 7). Populated 36/44 |
@@ -379,13 +379,13 @@ A shipped `.DTE` therefore carries no name of its own; the title the player sees
 `language.dll`. [OpenReliant](https://github.com/vdmkenny/openreliant) gives the missions it writes
 a name inside the file, and puts it in the one section the game provably ignores. The loader
 `FUN_00451D90` hands slot 21 to `FUN_00452A20` with a six-byte stack local, `local_e`, as the
-destination, and nothing reads `local_e` afterwards: the section's bytes are never touched. None of
-the 44 shipped missions uses it. Its count is 0 in all of them, and it has no room of its own: in
-41 its offset is section 22's, in `mission271` it is the image's end, and the two smallest
-templates mark it unused (`0xFFFF`).
+destination, and nothing reads `local_e` afterwards: the section's bytes are never touched. Across
+the 44 shipped missions its count is always 0, and no space is ever reserved for it: in 41 its
+offset is section 22's, in `mission271` it is the image's end, and the two smallest templates mark it
+unused (`0xFFFF`).
 
-In a mission OpenReliant names, section 21's count is the section's length in bytes, and the
-section reads, little-endian:
+When OpenReliant names a mission, slot 21's directory count measures the section in bytes rather
+than records, and the bytes are laid out as follows, little-endian:
 
 | off | field |
 |---|---|
@@ -395,29 +395,29 @@ section reads, little-endian:
 | `+0x08` | the name, UTF-8, `length` bytes |
 | `+0x08 + length` | a `0` byte |
 
-A well-formed section is therefore `9 + length` bytes, and since the count is a `u16` the name can
-run to 65,526 bytes. With no room in the template, OpenReliant's writer appends the section after
-the template's last byte and points slot 21 at it; every other section keeps its template offset
-and its room. The named image grows by the section's size, so even the longest name leaves the
-largest template (850,919 bytes) at 916,454 at most, well inside the loader's `0xFA000` buffer (§2). By
-the loader evidence above the game never reads the added bytes, and OpenReliant reports that the
-game plays a named mission like any other. (This project never runs the game, so that last point
-is theirs, not tested here.)
+A well-formed section is therefore `9 + length` bytes; the count is a `u16`, so the name can run
+to 65,526 bytes. Because no shipped template sets aside space for section 21 (above),
+OpenReliant's writer grows the file instead: the section goes on after the image's last byte and
+slot 21's offset points there, while every other section stays where its template put it. The
+named image grows by the section's size, so even the longest name leaves the largest template
+(850,919 bytes) at 916,454 at most, well inside the loader's `0xFA000` buffer (§2). Nothing in the
+loader looks at the appended bytes (see above). According to OpenReliant, a named mission also
+loads and runs normally in the original game; this project never runs the game, so that
+observation is theirs and untested here.
 
-OpenReliant shows a name only when the tag is `ORMN`, the version is `1` and the counted name fits
-in the section, and leaves anything else in section 21 alone; `openreliant missions` prints the
-name in the last column of its listing.
-
-**In `dte_parse.py`.** The tool applies the same test, so both tools agree on which missions carry
-a name and what it is. `decode` prints it under the header line as
+**In `dte_parse.py`.** Our tool counts a mission as named when three things hold: the first four
+bytes of section 21 spell `ORMN`, the version field is `1`, and the length field does not reach
+past the end of the section. OpenReliant's reader asks the same three questions, so the two tools
+settle on the same missions and the same names; OpenReliant lists the name as the final column of
+`openreliant missions`. `decode` prints it under the header line as
 `mission name (OpenReliant, section 21): "The Sandbox"` and marks slot 21 `ORMN` in the directory;
 `sweep` adds it to the mission's row. Every way a tagged section departs from the layout is
 reported in words, as a `!!` line or a `sweep` note, and never stops the run: another version, a
 name longer than the section, a header cut short, a count past the image's end, a missing or wrong
 terminator, bytes after it, a `0` inside the name, or bytes that are not UTF-8. Where OpenReliant
-would still show the name, so does `dte_parse.py`, beside the report. A section 21 that is empty
-or holds anything else prints exactly as before. Editing in place (§3.0) never moves or drops the
-section: `roundtrip` keeps a named mission byte-identical.
+would still show the name, so does `dte_parse.py`, beside the report. A section 21 with no `ORMN`
+tag, or none at all, changes nothing in the output. Editing in place (§3.0) never moves or drops
+the section: `roundtrip` keeps a named mission byte-identical.
 
 *Credit:* the convention and its layout are OpenReliant's, by vdmkenny: see
 [OpenReliant's mission name](https://github.com/vdmkenny/openreliant/blob/main/docs/formats/dte.md#openreliants-mission-name)
