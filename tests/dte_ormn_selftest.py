@@ -162,6 +162,24 @@ def check_non_ascii_name_survives_a_narrow_console():
     assert LABEL + '"\\u03a9mega St\u00e5tion \\u661f"' in text, text
 
 
+def check_count_ends_the_section_before_trailing_bytes():
+    # Filler after the section: the directory's count, not the image's end, bounds it.
+    blob = ormn("The Sandbox")
+    image = with_section21(blob + b"\xaa" * 16, count=len(blob))
+    info = name_of(image)
+    assert info == {"name": "The Sandbox", "version": 1, "length": 11, "problems": []}, info
+    assert "!!" not in decode(image)
+
+
+def check_count_ends_the_section_before_the_name_does():
+    # The name fits in the image but not in the count: OpenReliant shows no name, nor do we.
+    blob = ormn("Sandbox")
+    image = with_section21(blob, count=len(blob) - 3)
+    info = name_of(image)
+    assert info["name"] is None, info
+    assert any("runs past the section" in p for p in info["problems"]), info["problems"]
+
+
 def check_control_characters_are_escaped():
     out = decode(with_section21(ormn("\x1b[31mRed\nLine")))
     assert LABEL + '"\\x1b[31mRed\\nLine"' in out, out
@@ -265,6 +283,8 @@ CHECKS = [
     check_an_empty_name_is_a_name,
     check_non_ascii_name_counts_bytes,
     check_non_ascii_name_survives_a_narrow_console,
+    check_count_ends_the_section_before_trailing_bytes,
+    check_count_ends_the_section_before_the_name_does,
     check_control_characters_are_escaped,
 ] + [make_malformed_check(label, *case) for label, case in MALFORMED.items()] + [
     check_sweep_lists_names_and_problems,
