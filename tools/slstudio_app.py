@@ -103,7 +103,7 @@ TXT   = "#D7E3F2"   # primary text
 TXT_D = "#90A2B8"   # secondary text
 TXT_DD = "#566A80"  # tertiary / hints
 
-APP_VERSION = "v1.2"
+APP_VERSION = "v1.3"
 PALETTE = dict(BG0=BG0, BG1=BG1, BG2=BG2, BG3=BG3, LINE=LINE, LINE2=LINE2,
                CYAN=CYAN, AMBER=AMBER, RED=RED, GREEN=GREEN, TXT=TXT, TXT_D=TXT_D)
 
