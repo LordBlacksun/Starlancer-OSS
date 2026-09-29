@@ -282,6 +282,14 @@ corrected opcode table in
 names are used throughout that table; rows we could not yet re-verify are
 marked as theirs.
 
+**Adopted 2026-09-29: their mission name.** OpenReliant keeps a mission's
+name in section 21, tagged `ORMN`. `tools/dte_parse.py` now reads it, so a
+mission named in one tool keeps its name in the other, and
+[`dte-format.md`](dte-format.md) §10.1 describes the layout in our own words
+with a link to theirs. The convention is theirs; what we added is the loader
+evidence that the game never reads the section, and the count showing no
+shipped mission uses it.
+
 **Not adopted:** no code (MPL-2.0 could enter a GPL-3.0 work one way under MPL
 §3.3, but nothing of theirs was needed), and no prose — CC BY-SA 4.0 text cannot
 be pasted into our CC BY 4.0 documents without making the result share-alike.
