@@ -7,33 +7,45 @@
 [![No game data](https://img.shields.io/badge/game%20data-none%20(guarded)-brightgreen.svg)](tools/check_no_game_data.py)
 [![Static only](https://img.shields.io/badge/analysis-static%20only-informational.svg)](AI-TRANSPARENCY.md)
 
-Open-source reverse-engineering tools and documentation for **Starlancer**
-(Digital Anvil / Microsoft, 2000) — the space-combat flight sim.
+The documentation commons for **Starlancer** (Digital Anvil / Microsoft, 2000; developed by
+Warthog), the space-combat sim: its file formats, its engine and the scene's shared research,
+written up so that any project may build on them.
 
 > ⚖️ **You must own a legal copy of Starlancer to use these tools with the game.**
 > This repository contains **only original code and documentation** — no game
 > binaries, assets, or other copyrighted material, and none should ever be committed
 > here (see `.gitignore`).
 
-## Starlancer Studio — the all-in-one app
+## Where to go
 
-**[⬇ Download `StarlancerStudio.exe`](https://github.com/LordBlacksun/Starlancer-OSS/releases/tag/studio-v1.1)** · Windows, no install · verify with [`SHA256SUMS.txt`](https://github.com/LordBlacksun/Starlancer-OSS/releases/tag/studio-v1.1)
+The scene's centre is **[OpenReliant](https://github.com/vdmkenny/openreliant)**, an open-source,
+faithful reimplementation of the StarLancer engine in Zig on SDL3. It runs natively on Windows,
+Linux and macOS from your own retail discs, and its first campaign mission already plays from start
+to finish. That is where StarLancer is being rebuilt, and where this project sends its own new code.
 
-[`tools/slstudio_app.py`](tools/slstudio_app.py) is a single desktop app (and a one-file `.exe`) that
-fronts the whole toolchain in a dark "Alliance Naval Command" cockpit — **eight sections**:
+| You want to… | Go to |
+|---|---|
+| **Play StarLancer on a modern PC** | **OpenReliant**: [latest release](https://github.com/vdmkenny/openreliant/releases/latest) · [installation](https://github.com/vdmkenny/openreliant/blob/main/docs/guide/installation.md) · [controllers](https://github.com/vdmkenny/openreliant/blob/main/docs/guide/controllers.md) |
+| **Contribute code**: engine work, fixes, mod tools | **OpenReliant**: [contributing guide](https://github.com/vdmkenny/openreliant/blob/main/CONTRIBUTING.md) · [issues](https://github.com/vdmkenny/openreliant/issues) · [milestones](https://github.com/vdmkenny/openreliant/milestones) |
+| **Make mods** | OpenReliant's [Modding milestone](https://github.com/vdmkenny/openreliant/milestone/19), where mod archives, new ship types, textures and sounds are being designed. Until it lands, the format specs [below](#documentation) are the map. |
+| **Understand a file format or the original engine** | **This repository**: the [documentation](#documentation) and the [wiki](https://github.com/LordBlacksun/Starlancer-OSS/wiki) |
+| **Run your original CD copy on Windows 10/11** | **This repository**: [Starlancer Studio](#the-original-game-kit) and the [setup checklist](docs/running-on-modern-windows.md) |
+| **See every project in the scene, and what each may take from the others** | [`docs/modding-scene.md`](docs/modding-scene.md) §4 |
 
-- **Dashboard** — at-a-glance status of your install (the three EXE fixes, controller shim, boot logos),
-  a one-click **Apply Recommended Fixes**, and a backup / restore manager.
-- **Patcher** — widescreen Hor+ and the RE'd crash fixes, per-fix verify / revert.
-- **Ship Switcher**, **Stats Editor**, **HOG Tools** — the editors, in a GUI.
-- **Controller Shim** — install the XInput → DirectInput proxy for modern pads.
-- **Boot Videos** — blank the startup branding logos.
-- **Ready-to-Play** — a wizard that stages a complete, patched, ready-to-run copy into an output folder.
+### What this repository is
 
-Like every tool here it is **static — it reads and patches local copies only and never launches the
-game.** The only third-party runtime dependency (`customtkinter`) is bundled. *As a one-file PyInstaller
-build, some antivirus heuristics may flag it — a common false positive; the full source is in this repo,
-and the release ships a `SHA256SUMS.txt` to verify your download.*
+Starlancer-OSS began as a toolkit for the original executable. Since September 2026 it is the
+scene's **documentation commons**:
+
+- **Research stays here**, under **CC BY 4.0**, so that every Starlancer project can use it whatever
+  its own licence: OpenReliant, neoslancer and StarLancerEditor alike. The format specs, the engine
+  map, the `.DTE` scripting reference and the reverse-engineering notes all live here, with their
+  evidence.
+- **New code goes upstream.** Engine work and modding tools are contributed to OpenReliant rather
+  than grown in parallel here. The first, a RefPack encoder, is
+  [openreliant#429](https://github.com/vdmkenny/openreliant/pull/429).
+- **The original-game kit is complete.** Starlancer Studio, the patch pack, the controller shim and
+  the editors are maintained for bug fixes, not extended.
 
 ## Documentation
 
@@ -66,6 +78,33 @@ and the release ships a `SHA256SUMS.txt` to verify your download.*
 | [`docs/game-reference/`](docs/game-reference/) | Ships, fighters, characters, the full campaign, factions and weapons. Compiled from the [Starlancer Fandom Wiki](https://starlancer.fandom.com/) (CC BY-SA 3.0) and cross-checked against our RE. |
 
 See also the [project wiki](https://github.com/LordBlacksun/Starlancer-OSS/wiki) for the engine reference.
+
+## The original-game kit
+
+For the original executable, from your own CD: the patches, editors and controller shim that get it
+running on Windows 10/11. The kit is **complete** and maintained for bug fixes only; to play
+StarLancer on a modern system, [OpenReliant](https://github.com/vdmkenny/openreliant) is the
+better road.
+
+### Starlancer Studio — the all-in-one app
+
+**[⬇ Download `StarlancerStudio.exe`](https://github.com/LordBlacksun/Starlancer-OSS/releases/latest)** · Windows, no install · verify with the release's `SHA256SUMS.txt`
+
+[`tools/slstudio_app.py`](tools/slstudio_app.py) is a single desktop app (and a one-file `.exe`) that
+fronts the whole toolchain in a dark "Alliance Naval Command" cockpit — **eight sections**:
+
+- **Dashboard** — at-a-glance status of your install (the three EXE fixes, controller shim, boot logos),
+  a one-click **Apply Recommended Fixes**, and a backup / restore manager.
+- **Patcher** — widescreen Hor+ and the RE'd crash fixes, per-fix verify / revert.
+- **Ship Switcher**, **Stats Editor**, **HOG Tools** — the editors, in a GUI.
+- **Controller Shim** — install the XInput → DirectInput proxy for modern pads.
+- **Boot Videos** — blank the startup branding logos.
+- **Ready-to-Play** — a wizard that stages a complete, patched, ready-to-run copy into an output folder.
+
+Like every tool here it is **static — it reads and patches local copies only and never launches the
+game.** The only third-party runtime dependency (`customtkinter`) is bundled. *As a one-file PyInstaller
+build, some antivirus heuristics may flag it — a common false positive; the full source is in this repo,
+and the release ships a `SHA256SUMS.txt` to verify your download.*
 
 ## Tools
 
@@ -137,6 +176,10 @@ python tests/run_all.py                                     # run the full self-
 
 ## Status
 
+**The research continues; the kit is complete.** New findings land in [`docs/`](docs/) and the
+wiki. New code goes to [OpenReliant](https://github.com/vdmkenny/openreliant) (see
+[Where to go](#where-to-go)). The original-game kit below is finished and receives bug fixes only.
+
 Documented & tooled: the `.HOG`/BIGF archive format (extractor + packer), the ship/weapon stat
 tables (editor + GUI), the Coalition ship-switcher, and the `.DTE` mission format — the **RefPack
 container is decoded end-to-end** (`dte_parse.py` decodes all 44 missions: directory, ships,
@@ -154,8 +197,12 @@ this project ships no FPS patch by design.
 
 ## Contributing
 
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) (dev setup, commit style, and how
-to submit) and our [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). The one hard rule: **never commit game
+**Engine work, fixes to the game and new modding tools belong in
+[OpenReliant](https://github.com/vdmkenny/openreliant)**, under its own contributing guide. Here we
+welcome research: corrections, new format findings, and documentation, plus bug fixes to the
+original-game kit.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) (dev setup, commit style, and how to submit) and our [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). The one hard rule: **never commit game
 data** (binaries, assets, or decrypted/derivative game files); a `.gitignore`, a pre-commit guard,
 and a CI check ([`tools/check_no_game_data.py`](tools/check_no_game_data.py)) enforce it. Run
 `python tests/run_all.py` before a PR. To report a guard bypass or other issue privately, see
@@ -194,6 +241,11 @@ tools and research we build on, with thanks:
   gameplay loop; their `.SPR`, `.FNT` and DirectPlay coverage goes well beyond ours. **No code from
   either repository is used here** — see [`docs/external-re-credits.md`](docs/external-re-credits.md)
   for exactly what crossed over, what we verified, and why.
+- **vdmkenny** — [*OpenReliant*](https://github.com/vdmkenny/openreliant), the engine
+  reimplementation this project now contributes to. Its engine code corrected several of our `.DTE`
+  readings ([`docs/dte-format.md`](docs/dte-format.md) §9b), and its source-file reconstruction places
+  the executable's functions into the original source tree. See
+  [`docs/external-re-credits.md`](docs/external-re-credits.md) §6.
 - **esc0rtd3w** — the *blank-intro-videos* project, whose black `blank.bik` the Studio build bundles
   as its boot-video placeholder when a copy is placed in `tools/assets/` (the clip is not part of this
   repo; without it the Studio uses its own generated zero-frame clip from
