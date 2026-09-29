@@ -16,9 +16,10 @@ script-stream opcodes. This **fuses two independent reverse-engineering efforts*
 
 > The companion tool `tools/dte_parse.py` holds these tables as importable data and prints
 > them (`dte_parse.py ref exec|triggers|ai|stream`). The Executor table below is generated
-> from it verbatim, so the doc and the tool can never drift. (The tool's `stream` table and its
-> script disassembler predate the 2026-09-22 correction below and are pending a rewrite; the
-> Executor table is unaffected.)
+> from it verbatim, so the doc and the tool can never drift. Its script disassembler
+> (`dte_parse.py decode <m> --section script`) follows control flow from every routine's entry
+> with the opcode table below, and `dte_parse.py sweep <dir> --script` checks it over a folder of
+> missions — see [§ The disassembler](#the-disassembler).
 
 ---
 
@@ -80,8 +81,15 @@ The high-level mission verbs. This table is **authoritative**: we walk the engin
 catalogue at VA `0x4F0F50` (installed by `FUN_0045CE30`; the `0x21 <i>` handler `FUN_0045BEA0`
 indexes entry `i`, stride `0x74`). **Name, `params`, `impl`** — and the per-parameter labels in the
 [§ Command parameters](#command-parameters) appendix — are the **developers' own strings**, recovered
-straight from the binary. There are **95 real commands (`0x00`–`0x5E`)**; `0x5F` is an empty slot and
-a disabled `Test_AI_Function` stub sits at `0x60`.
+straight from the binary. There are **95 real commands (`0x00`–`0x5E`)**; `0x5F` has no
+implementation and ends the catalogue (`FUN_00452A80`, the counter `FUN_0045CE30` calls, stops at the
+first entry without one; the entry is all zeros). **`Test_AI_Function` is not command `0x60`** — this
+doc said so until 2026-09-29. It is entry 0 of a *second* catalogue, the AI-function catalogue at
+`0x4F3AD0` (description *"Test AI Function"*, no implementation, two parameters labelled *"Testttt
+Param 1"* and *"Testttt Param 2"* — a developer's placeholder, typo and all), which
+begins where this one ends (`0x4F0F50 + 0x60 × 0x74 = 0x4F3AD0`) and serves opcode `0x4F`; see
+[§ The vestigial AI layer](#the-vestigial-ai-layer). Our wiki's `DAT_004F3AD0` "command catalogue" was
+that address.
 
 > **Numbering vs Starlancer ME.** The blog's empirical indices agree with the catalogue **except
 > `0x16`–`0x19` and `0x26`–`0x2A`**, where the black-box effort mistook *parameter-label* text for
@@ -211,20 +219,23 @@ moves the instruction pointer, or calls something with the values on the stack. 
 are the 86 pointers at `DAT_004F6350` (`0x00`–`0x55`; `0x00`, `0x01`, `0x08`–`0x13` and `0x50` are
 null, leaving 71 opcodes; five pairs share a handler and are the same operation). Names follow
 openreliant's `docs/formats/dte.md`, which read the handlers and corrected this table's earlier
-pattern-level readings; the rows marked ✓ were re-verified here against the handler bytes
-(capstone over the exe read as data), the rest are openreliant's and are not yet re-read. `a` is the
-value below the top of the stack, `b` the top. Operand bytes follow the opcode; `d16` displacements
-are **big-endian** and are counted from the displacement's own address.
+pattern-level readings. **Every row is now re-verified here** against the handler bytes (capstone
+over the exe read as data): the rows marked ✓ on 2026-09-22, the rest on 2026-09-29, when each
+handler's use of the IP cell gave its operand width. All 71 widths agree with openreliant's, which
+they reached independently by symbolic execution, and the handler addresses below match the table at
+`0x4F6350` entry for entry. `a` is the value below the top of the stack, `b` the top. Operand bytes
+follow the opcode; `d16` displacements are **big-endian** and are counted from the displacement's own
+address.
 
 | opcode | handler | name | effect |
 |---|---|---|---|
 | `0x02` / `0x03` | `0x45BAD0` / `0x45BB00` | `equal` / `not_equal` | pop `b`, `a`; push `a == b` / `a != b` (`sete` / `setne`) ✓ |
 | `0x04` / `0x05` | `0x45BB30` / `0x45BB60` | `greater` / `greater_equal` | unsigned compare of `a` with `b` ✓ |
-| `0x06` / `0x07` | `0x45BB90` / `0x45BBC0` | `less` / `less_equal` | unsigned compare (openreliant) |
+| `0x06` / `0x07` | `0x45BB90` / `0x45BBC0` | `less` / `less_equal` | unsigned `a < b` (`cmp a, b; sbb; neg`) / `a <= b` (`cmp b, a; sbb; inc`) ✓ |
 | `0x14` / `0x15` | `0x45BBF0` / `0x45BC30` | `in_flight_group` / `not_in_flight_group` | pop `b` (flight group), `a` (ship); push whether `FUN_00452AA0(a) == b` ✓ |
-| `0x16`–`0x1A` | | `assign`, `add_assign`, `sub_assign`, `mul_assign`, `div_assign` | store through the current select target (openreliant) |
-| `0x1B`–`0x1E` | | `add`, `sub`, `mul`, `div` | (openreliant) |
-| `0x1F` / `0x20` | | `logical_and` / `logical_or` | (openreliant) |
+| `0x16`–`0x1A` | `0x45BC70`–`0x45BD30` | `assign`, `add_assign`, `sub_assign`, `mul_assign`, `div_assign` | store `b` through the select target `[0x537408]` (`=`, `+=`, `-=`, `*=`, unsigned `/=`); pops two slots — the value and the old value `select_*` pushed ✓ |
+| `0x1B`–`0x1E` | `0x45BD60`–`0x45BDF0` | `add`, `sub`, `mul`, `div` | pop `b`, `a`; push `a op b` (`div` unsigned) ✓ |
+| `0x1F` / `0x20` | `0x45BE20` / `0x45BE60` | `logical_and` / `logical_or` | pop `b`, `a`; push `1` or `0` ✓ |
 | `0x21 <i>` | `0x45BEA0` | `command` | call Executor command `i` (catalogue `0x4F0F50`, stride `0x74`): drops `params` values from the stack, calls the implementation, stores its result; section-24 flag bit 0 (inverted) goes to `DAT_00537584` first ✓ |
 | `0x22 <p>` | `0x45BFA0` | `call_part` | call part `p` (runtime part table `[0x538C94]`, stride `0x74`): pushes the argument count, return IP, frame base and block end, then enters the block ✓ |
 | `0x23` / `0x24` `<d16>` | `0x45C270` | `branch_if_zero` | pop; if zero, IP = displacement address + `d16`, else skip the two bytes ✓ |
@@ -232,30 +243,31 @@ are **big-endian** and are counted from the displacement's own address.
 | `0x26 <n>` | `0x45C2D0` | `push_array` | push `[0x52A3F0 + 4n]` ✓ |
 | `0x27 <n>` | `0x45C300` | `push_global` | push `globals[n].value` (`DAT_005294F8 + 12n + 4`) ✓ |
 | `0x28 <n>` | `0x45C340` | `push_constant` | push dword `n` of the running block's constant table (`[0x5373F0] + 4n`, the table that follows the block) ✓ |
-| `0x29 <n16>` | `0x45C370` | `push_constant_wide` | (openreliant) |
+| `0x29 <n16>` | `0x45C370` | `push_constant_wide` | as `0x28` with a big-endian two-byte index; unused in the 44 shipped missions ✓ |
 | `0x2A` / `0x2B` `<len> text NUL` | `0x45C3B0` | `push_string` | push a pointer to the text after the length byte; IP += `len` — the length counts itself (`2A 0F "new_sim02.wav\0"`) ✓ |
 | `0x2C <n>` | `0x45C3E0` | `push_ship` | push `&ships[n]` (`DAT_0052951C + 0x4C·n`) ✓ |
 | `0x2D <n>` | `0x45C560` | `push_flight_group` | push `&flight_groups[n]` (`DAT_005267CC + 0x14·n`, section 4) ✓ |
 | `0x2E` / `0x32` `<n>` | `0x45C6B0` | `push_byte` | push the operand byte ✓ |
-| `0x2F <n>` | `0x45DA50` | `push_percent` | push `n` percent of the top value (openreliant) |
+| `0x2F <n>` | `0x45DA50` | `push_percent` | push `top × n × 0.01` (`fimul`, then `fmul` by the `0.01f` at `0x4DC730`, truncated by `__ftol`); the top is not popped ✓ |
 | `0x30 <n>` | `0x45C5A0` | `push_local` | push thread local `n` (`thread + 0x18 + 4n`; a trigger block's locals hold the event's values) ✓ |
 | `0x31 <n>` | `0x45C680` | `push_argument` | push `[frame_base + 4n]` ✓ |
-| `0x33`–`0x36` | `0x45DAB0`… | `greater_f` … `less_equal_f` | the compares through the FPU (openreliant) |
-| `0x37`–`0x3E` | `0x45DC30`… | `add_assign_f` … `div_f` | float assigns and arithmetic (openreliant) |
+| `0x33`–`0x36` | `0x45DAB0`–`0x45DBD0` | `greater_f` … `less_equal_f` | the four compares through the FPU on zero-extended 64-bit loads (`fild`; `fcompp`) — the same results as `0x04`–`0x07` ✓ |
+| `0x37`–`0x3A` | `0x45DC30`–`0x45DCF0` | `add_assign_f` … `div_assign_f` | the assigns into a **float** target (`fadd`/`fsubr`/`fmul`/`fdivr` `dword ptr [target]`) ✓ |
+| `0x3B`–`0x3E` | `0x45DD30`–`0x45DE20` | `add_f` … `div_f` | integer arithmetic computed in floating point and truncated (`_ftol`, `0x4CF28C`) ✓ |
 | `0x3F <n>` / `0x40 <n>` | `0x45C790` / `0x45C7D0` | `select_array` / `select_global` | set the store target (`DAT_00537408`) to `&array[n]` / `&globals[n].value` and push its value ✓ |
-| `0x41 <n>` | `0x45C810` | `select_argument` | (openreliant) |
+| `0x41 <n>` | `0x45C810` | `select_argument` | set the store target to argument `n` of the current frame and push its value ✓ |
 | `0x42 <d16>` | `0x45C2B0` | `jump` | IP = displacement address + `d16` ✓ |
 | `0x44 <n>` | `0x45C850` | `push_squad` | push `&squads[n]` (`DAT_005294FC + 0x0C·n`, section 12) ✓ |
 | `0x45` / `0x46` | `0x45C890` / `0x45C8D0` | `in_squad` / `not_in_squad` | `FUN_00452AC0(a, b, 0xFF)`: the membership walk over sections 12 and 13, nested squads included ✓ |
-| `0x47` / `0x55` `<n> <c>` | `0x45C460` | `push_component` | push ship `n`, tagged with component `c` (openreliant) |
-| `0x48` | `0x45C4B0` | `push_null` | push `−1`, for parameters labelled "can be NULL" (openreliant) |
-| `0x49 <n>` / `0x54 <n>` | `0x45C4D0` / `0x45C520` | `push_sub_object` / `push_section_19` | push record `n` of sections 16 / 19 (openreliant) |
-| `0x4A` / `0x4E` / `0x4F` | `0x45C110` / `0x45C1E0` / `0x45BF20` | `call_part_b` / `spawn_part_b` / `command_b` | the same through the second part and command tables, which serve section 18 (openreliant) |
+| `0x47` / `0x55` `<n> <c>` | `0x45C460` | `push_component` | push `&ships[n]`, then tag the slot with component `c` (`FUN_0045D8B0`); two operand bytes ✓ |
+| `0x48` | `0x45C4B0` | `push_null` | push `−1`, for parameters labelled "can be NULL" ✓ |
+| `0x49 <n>` / `0x54 <n>` | `0x45C4D0` / `0x45C520` | `push_curve` / `push_section_19` | push `&section16[n]` (stride `0x44`) / `&section19[n]` (stride `0x0C`); `push_curve` is openreliant's name for section 16 ✓ |
+| `0x4A` / `0x4E` / `0x4F` | `0x45C110` / `0x45C1E0` / `0x45BF20` | `call_part_b` / `spawn_part_b` / `command_b` | the same as `0x22` / `0x4D` / `0x21`, through the part table `[0x538C98]` and the AI-function catalogue `0x4F3AD0`. **Wired and dead**: see [§ The vestigial AI layer](#the-vestigial-ai-layer) ✓ |
 | `0x4B <c> <v> <o>` | `0x45C5E0` | `push_event_value` | push value `v` kept for condition `c` on object `o` (records of `0x28` bytes at `DAT_00538CA0`; descriptor slot `[DAT_0052952C + 0x1C·c + 0xC]`) ✓ |
-| `0x4C` | `0x45C650` | `push_result` | push the last command's result (openreliant) |
+| `0x4C` | `0x45C650` | `push_result` | push the last command's result: `[[0x537578] + 0xB0]`, the slot `0x21` writes after every call ✓ |
 | `0x4D <p>` | `0x45C070` | `spawn_part` | move the part's arguments to a new thread (`FUN_0045B960`), start it on the part (`FUN_0045B8D0`) and carry on ✓ |
-| `0x51 …` | `0x45C910` | `random_branch` | count, big-endian default target, then `count` arms of (big-endian target, threshold, one unidentified byte) (openreliant) |
-| `0x52 <n16>` / `0x53` | `0x45C420` / `0x45C510` | `push_ship_wide` / `nop` | (openreliant) |
+| `0x51 …` | `0x45C910` | `random_branch` | count, big-endian default, then `count` four-byte arms of (big-endian target, threshold, a byte the handler never reads). Rolls `rand() % 100` and takes the **first** arm whose threshold exceeds it — thresholds are *not* cumulative, so a later arm with a lower threshold can never win — or the default; an arm target of `0xFFFF` means the default. Targets count from the opcode; it never falls through. See [§ `random_branch` slack](#random_branch-slack) ✓ |
+| `0x52 <n16>` / `0x53` | `0x45C420` / `0x45C510` | `push_ship_wide` / `nop` | push `&ships[n]`, `n` big-endian / do nothing ✓ |
 
 **Blocks and constants.** A block is a `u16` length that counts its own two bytes, then
 instructions ending in `return`, padded to a four-byte boundary; its constant table — the dwords
@@ -287,10 +299,64 @@ SUCCESS or FAIL branch — which play different comms (`…_001.ut` vs `…_002.
 **default to "failed"** and are promoted to one of the five outcome grades (see `dte-format.md`
 §Outcomes).
 
-> **`tools/dte_parse.py`** still carries the pre-correction `STREAM_OPS` table and a linear decoder
-> whose operand widths (`0x2A`, `0x42`, the opcodes it does not know) and script length (it reads the
-> section-6 count as bytes, not halfwords) make its `decode --section script` listing unreliable.
-> It is pending a rewrite; do not key anything off that listing.
+### The disassembler
+
+`tools/dte_parse.py decode <mission> --section script` (rebuilt 2026-09-29) lists every **routine**:
+a block plus the constant table that follows it. Entry points are the parts of section 8 (the
+loader `FUN_00452F50` → `FUN_00452FD0` sets a part's block to `script + start × 2` from `+0x0A` and
+its argument count from `+0x0D`) and the links of the triggers some object's slice of section 5
+holds. It follows control flow from each entry rather than sweeping, because `jump`, `return` and
+`random_branch` never fall through. A misread width can't pass silently. A path that leaves its
+block, two instructions sharing a byte, or a null opcode is an error. The self-test
+(`tests/dte_selftest.py`) proves each tripwire, including the old tool's one-byte `push_string`.
+
+`dte_parse.py sweep <dir> --script` checks the result against the shipped missions. Over all 44:
+
+| check | result |
+|---|---|
+| routines / instructions decoded | **3,703 / 122,236**, zero decode errors |
+| routines tiling section 6 exactly (block + constants, rounded to 8, up to the next routine) | **44 / 44 missions** |
+| part extents (`+0x10`) agreeing with the decoded layout | **all** |
+| paths that run into a block's limit instead of a `return` or `jump` | **none** |
+| bytes inside a block that nothing reaches | **none**, besides four `random_branch` slack regions (below) |
+
+The same sweep counts opcode use. `return` is always `0x43`, exactly once per routine (3,703 of
+3,703). Never used: `0x25`, `0x29`, `0x2F`, `0x41`, `0x53`–`0x55`, the whole floating-point
+family `0x33`–`0x3E`, and every arithmetic op except `+=` and `-=` (`mul_assign`, `div_assign`,
+`add`, `sub`, `mul`, `div`). `random_branch` occurs four times in the entire game.
+
+### `random_branch` slack
+
+openreliant listed "four 32-byte regions that nothing reaches" as open. They are **unused slots of
+`random_branch`'s arm table.** All four shipped `random_branch`es (`mission15` ×2, `mission18`,
+`mission23`) have two arms, so the live instruction is 12 bytes. Yet each one's first arm targets
+**+44** from the opcode, which is exactly where its gap ends. 44 = a 4-byte head + ten 4-byte arm
+slots: the mission compiler laid the instruction out with room for ten arms and filled two. The
+handler reads only `count` arms and never falls through, so slots 3–10 are never read.
+
+The slack isn't zeroed. It holds stale bytes that look like code: `mission15`'s first gap contains
+`2c 48 32 0a 28 00 2c 06 21 0b` at byte 4094, which is the `SetAI` sequence that appears for real
+44 bytes later (4138) as the second arm. The arms' never-read fourth bytes carry the same residue (`0x2C`, `0x42`, `0x28`
+are opcode values). So does the padding before a constant table: `mission1`'s first block pads with
+`32 01`, the bytes of `push_byte 1`. The compiler reused a buffer without clearing it. Since every
+instance has count 2, "ten slots always" can't be told apart from "count + 8". The tool labels such
+a gap as slack, not as unreached code.
+
+### The vestigial AI layer
+
+A second, AI-owned script layer is wired through the engine end to end, and never used:
+
+| piece | where | state |
+|---|---|---|
+| opcodes `0x4A` `call_part_b`, `0x4E` `spawn_part_b`, `0x4F` `command_b` | handlers `0x45C110`, `0x45C1E0`, `0x45BF20` | **0** uses in 122,236 instructions |
+| part descriptors | section 17 (`DAT_005294EC`), built into `[0x538C98]` by `FUN_00452F50` | empty in all 44 |
+| bytecode | section 18 (`DAT_00525FB4`): `FUN_00453020` sends any descriptor outside section 8 there | empty in all 44 |
+| per-function flags | section 25 (`DAT_00525F90`), read by `0x4F` as section 24 is by `0x21` | empty in all 44 |
+| function catalogue | `0x4F3AD0`, installed beside the command catalogue by `FUN_0045CE30` into `DAT_005267D4` | one entry, `Test_AI_Function` (*"Testttt Param 1"*, *"Testttt Param 2"*), **no implementation**; counted as 0 |
+| dispatcher | `0x4F` calls `FUN_0045D800(impl, params)` instead of the implementation | `mov eax, 1; ret 8` — a stub that reports success |
+
+`command_b` pops its arguments, stores `1` as the result, and does nothing else. A script that used
+the layer would run, and every AI function would quietly succeed.
 
 ---
 
