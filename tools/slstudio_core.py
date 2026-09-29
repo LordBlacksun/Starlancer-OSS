@@ -96,7 +96,12 @@ def patch_states(exe_path):
         except Exception:
             state, desc = "unknown", ""
         states[defn.id] = (state, desc)
-    man = sl_patch._read_manifest(exe_path)
+    # A manifest cut short or corrupted is set aside: the states above come from the exe's
+    # own bytes, and a scan never raises.
+    try:
+        man = sl_patch._read_manifest(exe_path)
+    except (ValueError, OSError):
+        man = None
     sha_ok = None
     if man:
         try:
@@ -674,6 +679,17 @@ def selftest():
               "manifest: kept under a .retired name, not deleted")
         check(retire_manifest(exe) is None, "manifest: retiring twice is a no-op")
         check(scan(game).manifest_is_stale() is False, "manifest: stale flag clears after retiring")
+        # A manifest cut short or corrupted must not stop the scan, which "never raises".
+        for broken in (b"", b"{ not json"):
+            _mk(man, broken)
+            try:
+                inst = scan(game)
+                check(inst.manifest is None and inst.exe_kind == "stock",
+                      "manifest: %s one is set aside, and the rest of the scan stands"
+                      % ("an empty" if not broken else "a corrupt"))
+            except Exception as e:                   # noqa: BLE001 - the bug is any raise
+                check(False, "manifest: scan raised %r on a broken manifest" % (e,))
+        os.remove(man)
 
         # ------------------------------------------------------------- selections
         sel = recommended_selections(1920, 1080)

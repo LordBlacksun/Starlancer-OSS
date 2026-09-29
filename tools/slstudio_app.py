@@ -1323,17 +1323,20 @@ class HogToolsFrame(Section):
         p = p or self.list_hog.get().strip()
         if not p:
             return
-        try:
-            data = open(p, "rb").read()
-            _sz, num, start, toc = hog_extract.parse(data)
-        except Exception as e:
-            self.default_error(e)
-            return
-        self.list_tree.delete(*self.list_tree.get_children())
-        for i, (name, off, length) in enumerate(toc):
-            self.list_tree.insert("", "end", values=(i, name, format(length, ","), "0x%08X" % off))
-        self.status("%d FILES" % num, "ok")
-        self.log.line("listed %s — %d files, data @ 0x%X" % (os.path.basename(p), num, start), "hi")
+
+        def work():
+            # the header and directory alone, off the window's thread: CD2.HOG is 535 MB
+            return hog_extract.read_toc(p)
+
+        def done(res):
+            _sz, _num, start, toc = res
+            self.list_tree.delete(*self.list_tree.get_children())
+            for i, (name, off, length) in enumerate(toc):
+                self.list_tree.insert("", "end", values=(i, name, format(length, ","), "0x%08X" % off))
+            self.status("%d FILES" % len(toc), "ok")
+            self.log.line("listed %s — %d files, data @ 0x%X" % (os.path.basename(p), len(toc), start), "hi")
+
+        self.run_async(work, done, busy="READING")
 
     # ---- EXTRACT ------------------------------------------------------------
     def _tab_extract(self, t):
@@ -1349,6 +1352,13 @@ class HogToolsFrame(Section):
                      width=130, anchor="w").grid(row=2, column=0, sticky="w", padx=4, pady=5)
         hud_entry(top, textvariable=self.ex_only).grid(row=2, column=1, sticky="ew", padx=4, pady=5)
         ctk.CTkLabel(top, text="(blank = all)", font=F["tiny"], text_color=TXT_DD).grid(row=2, column=2, padx=4)
+        # Most of resource.hog is RefPack-compressed, so members are expanded on the way out
+        # unless asked for as stored; a stored stream opens in no other tool.
+        self.ex_raw = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(top, text="keep RefPack members as stored (compressed)", variable=self.ex_raw,
+                        font=F["small"], text_color=TXT_D, checkbox_width=18, checkbox_height=18,
+                        corner_radius=3, fg_color=CYAN_D, hover_color=CYAN,
+                        border_color=LINE2).grid(row=3, column=1, sticky="w", padx=4, pady=5)
         self.b_extract = primary_button(t, "▼  EXTRACT", self._do_extract, width=140)
         self.b_extract.grid(row=1, column=0, sticky="w", pady=12)
         self._busy_widgets.append(self.b_extract)
@@ -1357,6 +1367,7 @@ class HogToolsFrame(Section):
         hog = self.ex_hog.get().strip()
         outdir = self.ex_out.get().strip()
         only = self.ex_only.get().strip() or None
+        decompress = not self.ex_raw.get()
         if not hog or not outdir:
             messagebox.showwarning("Need paths", "Pick an archive and an output folder.")
             return
@@ -1364,9 +1375,9 @@ class HogToolsFrame(Section):
 
         def work():
             data = open(hog, "rb").read()
-            _sz, num, _start, toc = hog_extract.parse(data)
+            _sz, _num, _start, toc = hog_extract.parse(data)
             want = {only.lower()} if only else None
-            n, skipped = 0, []
+            n, expanded, skipped = 0, 0, []
             for name, off, length in toc:
                 if want and name.lower() not in want:
                     continue
@@ -1377,17 +1388,24 @@ class HogToolsFrame(Section):
                 if not dest:
                     skipped.append(name + " (unsafe)")
                     continue
+                payload, was_expanded, error = hog_extract.member_payload(
+                    data[off:off + length], decompress)
+                if error:
+                    skipped.append("%s (kept compressed: %s)" % (name, error))
+                expanded += was_expanded
                 os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
                 with open(dest, "wb") as f:
-                    f.write(data[off:off + length])
+                    f.write(payload)
                 n += 1
-            return n, num, skipped
+            return n, len(toc), expanded, skipped
 
         def done(res):
-            n, num, skipped = res
-            self.log.line("extracted %d / %d file(s) → %s" % (n, num, outdir), "ok")
+            n, num, expanded, skipped = res
+            self.log.line("extracted %d / %d file(s) → %s%s" % (
+                n, num, outdir, (", %d expanded from RefPack" % expanded) if decompress
+                else ", as stored (RefPack members stay compressed)"), "ok")
             for s in skipped[:8]:
-                self.log.line("  skipped " + s, "warn")
+                self.log.line("  " + s, "warn")
             self.status("EXTRACTED %d" % n, "ok")
 
         self.run_async(work, done, busy="EXTRACTING")
@@ -1483,15 +1501,16 @@ class HogToolsFrame(Section):
         self._busy_widgets.append(self.b_rename)
 
     def _load_names(self, p, menu, var):
-        try:
-            entries = hog_pack.read_entries(p)
-        except Exception as e:
-            self.default_error(e)
-            return
-        names = [n for n, _ in entries]
-        menu.configure(values=names or ["(empty)"])
-        var.set(names[0] if names else "(empty)")
-        self.log.line("loaded %d names from %s" % (len(names), os.path.basename(p)), "hi")
+        def work():
+            # the directory alone, off the window's thread
+            return [name for name, _off, _len in hog_extract.read_toc(p)[3]]
+
+        def done(names):
+            menu.configure(values=names or ["(empty)"])
+            var.set(names[0] if names else "(empty)")
+            self.log.line("loaded %d names from %s" % (len(names), os.path.basename(p)), "hi")
+
+        self.run_async(work, done, busy="READING")
 
     def _do_replace(self):
         hog, name, newf, out = (self.rp_hog.get().strip(), self.rp_name.get(),
@@ -1572,7 +1591,9 @@ class HogToolsFrame(Section):
 
 # ======================================================= CONTROLLER section =====
 SHIM_KEYS = [
-    ("SeparateTriggers", "Separate triggers (LT→Rx, RT→Ry)", 1),
+    # Off by default: the game never reads lRx or lRy (xinput_shim/README.md, 2026-09-22), so
+    # the triggers do nothing in-game either way, and an option offered as on read as a feature.
+    ("SeparateTriggers", "Separate triggers (LT→Rx, RT→Ry): inert, the game never reads them", 0),
     ("TwistRightStickX", "Twist = right-stick X", 1),
     ("RightStickYToZ", "Right-stick Y → Z axis", 0),
     ("DPadAsPOV", "D-pad as POV hat", 1),
@@ -2301,7 +2322,7 @@ class DashboardFrame(Section):
             with open(p, "r", encoding="utf-8", errors="replace") as f:
                 return f.read()
         except Exception:
-            return "[mapping]\nSeparateTriggers=1\nDPadAsPOV=1\nDeadzone=7849\n"
+            return "[mapping]\nSeparateTriggers=0\nDPadAsPOV=1\nDeadzone=7849\n"
 
     def _browse(self):
         p = ask_dir("Pick your Starlancer install folder (contains Lancer.exe)")

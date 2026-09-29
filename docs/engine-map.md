@@ -201,7 +201,9 @@ dwPOVs), `EnumObjects`→`SetProperty(DIPROP_RANGE, −1000..1000)`, `SetPropert
 Runtime read (`FUN_004BD300`): `Poll()` (vtable +0x64) then `GetDeviceState(0x50)` (+0x24) into a
 standard 80-byte **`DIJOYSTATE`**. `FUN_004778C0` is only a DI version/capability **probe**, not the
 creation path. **Modern-systems fix:** a proxy `dinput.dll` (`tools/xinput_shim/`) forwards kbd/mouse
-to the real DInput and synthesizes the joystick from **XInput** with separate triggers (no-rumble v1).
+to the real DInput and synthesizes the joystick from **XInput** (no-rumble v1). Its separate-trigger
+axes, `lRx`/`lRy`, are inert: the game reads only `lX`, `lY`, `lZ`, `lRz`, `rglSlider[0]`,
+`rgdwPOV[0]` and the buttons (correction of 2026-09-22, `tools/xinput_shim/README.md`).
 
 ## 8. Assets, game objects & combat
 

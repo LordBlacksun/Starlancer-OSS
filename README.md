@@ -139,7 +139,7 @@ launch the game.
 | [`tools/ws_patch.py`](tools/ws_patch.py) | **Deprecated alias** for `sl_patch.py --widescreen` — keeps the old `--width/--height` CLI working (byte-identical output). |
 | [`tools/sl_emu.py`](tools/sl_emu.py) | **Function-level emulator** — executes ONE routine out of a local image copy inside a sandboxed CPU emulator and reports what it computes and every store it makes. Used to verify the widescreen fix by measurement. **Never launches the game**: no process, no window, no audio. Needs `unicorn` (optional). See [`docs/emulation-harness.md`](docs/emulation-harness.md). |
 | [`tools/blank_boot_videos.py`](tools/blank_boot_videos.py) | Skip the startup logo movies: blanks the three loose logo `.bik` files in the game folder (`WARTY_`, `NEW_DALOGO_FS_UNCMPR`, `NEW_NMS`), keeping `.orig` backups; `restore` puts them back. |
-| [`tools/xinput_shim/`](tools/xinput_shim) | **XInput controller shim** — a proxy `dinput.dll` (C, 32-bit) that forwards keyboard/mouse to real DirectInput and synthesizes the joystick from XInput with **separate triggers** (no-rumble v1). Source + `build.bat` + test host. |
+| [`tools/xinput_shim/`](tools/xinput_shim) | **XInput controller shim** — a proxy `dinput.dll` (C, 32-bit) that forwards keyboard/mouse to real DirectInput and synthesizes the joystick from XInput (no-rumble v1). Its separate-trigger axes are inert: the game never reads them. Source + `build.bat` + test host. |
 
 **Reverse-engineering & analysis**
 | Path | Description |

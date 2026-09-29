@@ -163,7 +163,9 @@ The engine uses Miles (`mss32.dll`). For 3D sound / EAX on modern systems:
 
 ## Step 6 — Controller  · **optional**
 
-For a modern Xbox-style pad with **separate triggers** (legacy DInput merges them):
+For a modern Xbox-style pad. **The triggers do nothing in the original game**, with our shim or
+without it: the game never reads the axes a pad's triggers can be put on, and rebinding them to
+buttons is not built. [OpenReliant](https://github.com/vdmkenny/openreliant) maps them to fire.
 
 - **Our shim:** copy `tools\xinput_shim\dinput.dll` (build it via `build.bat` if you
   don't have the binary) and optionally `xinput_shim.ini` into the game root.

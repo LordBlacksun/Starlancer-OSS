@@ -32,20 +32,56 @@ MAGIC = b"BIGF"
 
 
 def parse(data: bytes):
-    """Return (archive_size, num_files, data_start, [(name, offset, length), ...])."""
+    """Return (archive_size, num_files, data_start, [(name, offset, length), ...]).
+
+    `data` needs to hold the header and the directory only (read_toc). The walk stops at the
+    first record that is not a plausible one: a name of printable ASCII ending inside the
+    directory, for a member inside the archive. pilots.hog and msspeech.hog count one more
+    record than their directory holds, 0xCD filler, and reading it as a record invented an
+    entry from bytes of the members. `num_files` stays the header's own count.
+    """
     if data[:4] != MAGIC:
         raise ValueError("not a BIGF/.HOG archive (magic=%r)" % data[:4])
     archive_size, num_files, data_start = struct.unpack_from(">III", data, 4)
+    directory_end = min(data_start, len(data))
     entries = []
     p = 16
     for _ in range(num_files):
+        if p + 8 > directory_end:
+            break
         offset, length = struct.unpack_from(">II", data, p)
-        p += 8
-        end = data.index(b"\x00", p)          # NUL-terminated ASCII name
-        name = data[p:end].decode("latin-1")
+        end = data.find(b"\x00", p + 8, directory_end)          # NUL-terminated ASCII name
+        raw = data[p + 8:end] if end >= 0 else b""
+        if not raw or any(c < 0x20 or c >= 0x7F for c in raw) or offset + length > archive_size:
+            break
+        entries.append((raw.decode("latin-1"), offset, length))
         p = end + 1
-        entries.append((name, offset, length))
     return archive_size, num_files, data_start, entries
+
+
+def read_toc(path):
+    """parse() of the archive at `path` from its header and directory alone: the members are
+    not read, so listing CD2.HOG (535 MB) reads a few kilobytes."""
+    with open(path, "rb") as f:
+        head = f.read(16)
+        if head[:4] != MAGIC:
+            raise ValueError("not a BIGF/.HOG archive (magic=%r)" % head[:4])
+        data_start = struct.unpack_from(">I", head, 12)[0]
+        return parse(head + f.read(max(0, data_start - 16)))
+
+
+def member_payload(blob, decompress):
+    """The bytes to extract for a member stored as `blob`. -> (payload, expanded, error).
+
+    With `decompress`, a RefPack stream is expanded. One that does not expand is kept as
+    stored, with the reason in `error`, rather than written out wrong.
+    """
+    if not (decompress and refpack.is_refpack(blob)):
+        return blob, False, None
+    try:
+        return refpack.decompress(blob), True, None
+    except refpack.RefPackError as exc:
+        return blob, False, str(exc)
 
 
 def safe_join(outdir: str, name: str):
@@ -102,15 +138,14 @@ def main(argv=None):
             print("  ! %s: unsafe name, skipping" % name, file=sys.stderr)
             continue
 
-        payload, note = blob, ""
-        if args.decompress and packed:
-            try:
-                payload = refpack.decompress(blob)
-                expanded += 1
-                note = " <- refpack %d" % length
-            except refpack.RefPackError as exc:
-                # Keep the raw blob rather than write a file we know is wrong.
-                print("  ! %s: %s; extracted compressed" % (name, exc), file=sys.stderr)
+        payload, was_expanded, error = member_payload(blob, args.decompress)
+        note = ""
+        if was_expanded:
+            expanded += 1
+            note = " <- refpack %d" % length
+        elif error:
+            # Keep the raw blob rather than write a file we know is wrong.
+            print("  ! %s: %s; extracted compressed" % (name, error), file=sys.stderr)
 
         os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
         with open(dest, "wb") as out:
