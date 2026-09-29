@@ -35,6 +35,8 @@ The semantic tables (trigger enum, Executor commands, AI codes, stream opcodes) 
   observed in-game semantics.
 * **openreliant** (github.com/vdmkenny/openreliant, docs/formats/dte.md): the
   opcode names, and the part and routine layout, each re-read here against the exe.
+  Also its own convention for a mission's name, kept in section 21 (``ORMN``),
+  which the game never reads; ``decode`` and ``sweep`` show it where a mission has one.
 
 The script listing follows control flow from every routine's entry -- the parts
 of section 8 and the triggers some object's slice holds -- rather than sweeping,
@@ -281,7 +283,7 @@ SECTIONS = [
     ("script_b",         "DAT_00525FB4", None,        None), # 18 vestigial: "b" bytecode (see B_LAYER)
     ("section19",        "DAT_0052950C", None,        None), # 19 vestigial -- empty in all 44
     ("section20",        "DAT_00525FA0", None,        None), # 20 vestigial -- empty in all 44
-    ("section21",        "(local)",      None,        None), # 21 transient stack temp (count only)
+    ("section21",        "(local)",      None,        None), # 21 transient stack temp (count only); OpenReliant's mission name (ORMN_*)
     ("section22",        "DAT_00525278", None,        2),    # 22 operand-resolution array, kind 1 (large)
     ("section23",        "PTR_DAT_004EE7D8", None,    None), # 23 populated 40/44 (layout TBD)
     ("command_flags",    "DAT_00525F9C", None,        2),    # 24 u16 per command; 0x21 inverts bit 0 into DAT_00537584
@@ -348,6 +350,74 @@ def refpack_decompress(data):
             out += data[i:i + nproc]; i += nproc
             break
     return size, bytes(out)
+
+
+# --------------------------------------------------------------------------- #
+#  OpenReliant's mission name -- section 21.                                   #
+# --------------------------------------------------------------------------- #
+# The loader FUN_00451D90 reads slot 21's directory entry into a stack local,
+# local_e, that nothing reads afterwards, and never touches the section's bytes;
+# every shipped mission leaves the count 0.  OpenReliant uses the slot for a name
+# of its own (docs/formats/dte.md, "OpenReliant's mission name"): the count is the
+# section's size in bytes, which opens with the tag ORMN, a u16 version (1) and a
+# u16 length of the name in bytes, then the UTF-8 name and a NUL.  Its writer puts
+# the section after the template's end, since the template gives it no room.
+ORMN_SLOT = 21
+ORMN_TAG = b"ORMN"
+ORMN_VERSION = 1
+ORMN_HEADER = 8
+
+
+def read_ormn(section):
+    """Read section 21's bytes as OpenReliant's mission name.
+
+    Returns None unless the section opens with the tag ``ORMN``: an empty section,
+    or one holding anything else, is not a name.  Otherwise a dict with `version`
+    and `length` (None if the header is cut short), `name` -- the text OpenReliant
+    shows, or None where it shows none: a short header, another version, or a
+    length past the section -- and `problems`, one sentence per way the section
+    departs from the layout.  A name with problems is still shown if OpenReliant
+    would show it.
+    """
+    if section[:4] != ORMN_TAG:
+        return None
+    info = {"name": None, "version": None, "length": None, "problems": []}
+    problems = info["problems"]
+    if len(section) < ORMN_HEADER:
+        problems.append("the section holds %d bytes, too few for the 8-byte header" % len(section))
+        return info
+    version, length = struct.unpack_from("<HH", section, 4)
+    info["version"], info["length"] = version, length
+    if version != ORMN_VERSION:
+        problems.append("version %d; this tool reads version %d" % (version, ORMN_VERSION))
+        return info
+    room = len(section) - ORMN_HEADER
+    if length > room:
+        problems.append("the name's length, %d bytes, runs past the section, which holds %d after the header"
+                        % (length, room))
+        return info
+    raw = section[ORMN_HEADER:ORMN_HEADER + length]
+    try:
+        info["name"] = raw.decode("utf-8")
+    except UnicodeDecodeError as e:
+        info["name"] = raw.decode("utf-8", "replace")
+        problems.append("the name is not valid UTF-8 (byte 0x%02X at %d)" % (raw[e.start], e.start))
+    if b"\0" in raw:
+        problems.append("the name holds a NUL at byte %d, where a C string would end it" % raw.index(b"\0"))
+    after = section[ORMN_HEADER + length:]
+    if not after:
+        problems.append("no NUL after the name: the section ends with it")
+    elif after[0] != 0:
+        problems.append("the byte after the name is 0x%02X, not a NUL" % after[0])
+    elif len(after) > 1:
+        problems.append("%d bytes follow the name's NUL" % (len(after) - 1))
+    return info
+
+
+def quote_name(text):
+    """`text` in double quotes, with control characters escaped so a name cannot move the cursor."""
+    return '"%s"' % "".join(c if c.isprintable() else c.encode("unicode_escape").decode("ascii")
+                            for c in text)
 
 
 class Mission:
@@ -589,6 +659,23 @@ class Mission:
                 if r + 4 <= len(self.image):
                     names.setdefault(struct.unpack_from("<I", self.image, r)[0], "%s %d" % (label, i))
         return names
+
+    def openreliant_name(self):
+        """Section 21 read as OpenReliant's mission name (see `read_ormn`), or None.
+
+        The section is `count` bytes from its offset.  One the directory says runs
+        past the image is read as far as the image goes, as OpenReliant reads it,
+        and the shortfall is reported.
+        """
+        count, off, _fl = self.dir[ORMN_SLOT]
+        if count == 0 or off == EMPTY_OFF or off > len(self.image):
+            return None
+        section = self.image[off:off + count]
+        info = read_ormn(section)
+        if info is not None and len(section) < count:
+            info["problems"].insert(0, "the directory gives the section %d bytes, but the image ends after %d"
+                                    % (count, len(section)))
+        return info
 
 
 # --------------------------------------------------------------------------- #
@@ -1062,6 +1149,9 @@ def cmd_decode(args):
     name = os.path.basename(args.file)
     print("%s  ->  RefPack image %d bytes (0x%X)  reloc-flags=0x%X"
           % (name, len(mis.image), len(mis.image), mis.reloc_flags))
+    ormn = mis.openreliant_name()
+    for line in _ormn_lines(ormn):
+        print(line)
 
     if only in (None, "dir"):
         print("\n# 27-section directory")
@@ -1070,8 +1160,9 @@ def cmd_decode(args):
             cnt, off, fl = mis.dir[k]
             offs = "(empty)" if off == EMPTY_OFF else "0x%06X" % off
             st = "0x%02X" % stride if stride else "   -"
-            print("  [%2d]  %-18s %-18s %5d  %5s   %s%s"
-                  % (k, label, dat, cnt, st, offs, "  +reloc0x%X" % fl if fl else ""))
+            print("  [%2d]  %-18s %-18s %5d  %5s   %s%s%s"
+                  % (k, label, dat, cnt, st, offs, "  +reloc0x%X" % fl if fl else "",
+                     "  ORMN" if k == ORMN_SLOT and ormn is not None else ""))
 
     if only in (None, "ships"):
         print("\n# ships  (slot 3, stride 0x4C, n=%d)" % mis.count(3))
@@ -1116,6 +1207,22 @@ def cmd_decode(args):
     return 0
 
 
+def _ormn_lines(info):
+    """What `decode` prints under its header for OpenReliant's mission name; nothing if none."""
+    if info is None:
+        return []
+    shown = "none readable" if info["name"] is None else quote_name(info["name"])
+    return ["mission name (OpenReliant, section 21): " + shown] + [
+        "  !! section 21: " + p for p in info["problems"]]
+
+
+def _ormn_cell(info):
+    """The name `sweep` adds to a mission's row, or "" when section 21 holds none."""
+    if info is None:
+        return ""
+    return "  " + (quote_name(info["name"]) if info["name"] is not None else "ORMN, no name readable")
+
+
 def _head(it, limit):
     out = []
     for i, x in enumerate(it):
@@ -1150,6 +1257,7 @@ def cmd_sweep(args):
           ("file", "sig", "image", "ships", "fg", "trig", "script", "flags"))
     npass = 0
     missions = []
+    named = []
     for f in files:
         try:
             mis = load_mission(open(os.path.join(args.dir, f), "rb").read())
@@ -1160,10 +1268,19 @@ def cmd_sweep(args):
         missions.append(mis)
         ok = all(off == EMPTY_OFF or off <= len(mis.image) for _, off, _ in mis.dir)
         npass += 1 if ok else 0
-        print("  %-16s %5s %9d %6d %5d %5d %7d %5s0x%X"
+        ormn = mis.openreliant_name()
+        if ormn is not None:
+            named.append((f, ormn))
+        print("  %-16s %5s %9d %6d %5d %5d %7d %5s0x%X%s"
               % (f, "OK" if ok else "DIR?", len(mis.image), mis.count(3), mis.count(4),
-                 mis.count(5), mis.count(6), "", mis.reloc_flags))
+                 mis.count(5), mis.count(6), "", mis.reloc_flags, _ormn_cell(ormn)))
     print("\n%d/%d decoded (valid RefPack + 27-section directory)" % (npass, len(files)))
+    if named:
+        # Reported, never counted as a failure: the game reads nothing of section 21.
+        print("OpenReliant mission names in section 21: %d" % len(named))
+        for f, info in named:
+            for p in info["problems"]:
+                print("  - %s: %s" % (f, p))
 
     if getattr(args, "sections", False):
         print("\n# per-section population + stride check across %d missions" % len(missions))
@@ -1309,6 +1426,11 @@ def cmd_roundtrip(args):
 
 
 def main(argv=None):
+    # A name from section 21 is UTF-8 and may hold characters the console's code
+    # page lacks (cp1252 on a Windows pipe): print those escaped rather than fail.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="backslashreplace")
     ap = argparse.ArgumentParser(description="Starlancer .DTE decoder + reference (static; never runs the game).")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("ref"); p.add_argument("table", nargs="?", default="all",
