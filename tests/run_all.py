@@ -34,6 +34,10 @@ CHECKS = [
     # proving a misread operand width raises instead of decoding quietly wrong.
     ("dte script disassembler self-test",
      [sys.executable, os.path.join("tests", "dte_selftest.py")]),
+    # OpenReliant's mission name in section 21: shown when well formed, each
+    # malformed form reported in words, and no change at all where it is absent.
+    ("dte OpenReliant mission-name self-test",
+     [sys.executable, os.path.join("tests", "dte_ormn_selftest.py")]),
     # Studio's logic, with no GUI toolkit involved. slstudio_app.py cannot be
     # imported without customtkinter, so before slstudio_core.py existed no check
     # here touched the app at all and the Linux CI leg covered none of it.
