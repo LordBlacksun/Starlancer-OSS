@@ -57,7 +57,7 @@ Carrier = the home/allied carrier(s) named in the mission; "targets" = the disti
 |--:|--|--:|--:|--|--|
 | 1 | 1 | 118 | 23 | Reliant | 45th, mammoth, prowlers, lueneburg |
 | 2 | 2 | 299 | 39 | Reliant | 45th, Kestrel mammoths, pumas |
-| 3 | 3¹ | 283 | 36 | Reliant² | **destroy the experimental Coalition warp gate** (`PROTOGATE`); escape through it as it detonates — or refuse (§"warp gate"). ¹slot 3 loads `mission311`; ²names Yamato as an ally |
+| 3 | 3¹ | 283 | 36 | Reliant² | **destroy the experimental Coalition warp gate** (`PROTOGATE`); escape through it as it detonates — or refuse (§"warp gate"). ¹the single-player campaign loads `mission3`; a multiplayer session (most likely co-op) loads `mission311` (§4); ²names Yamato as an ally |
 | 4 | 4 | 276 | 43 | Reliant | 45th, Condor, Sierra, the Mammoth |
 | 5 | 5 | 279 | 34 | Reliant | 45th, stiffs, mammoth, convoy |
 | 6 | 6 | 302 | 35 | Reliant | 45th, Ulysses + Ulysses convoy, Kamov |
@@ -90,14 +90,33 @@ cutscene). End‑game/credits = mission **29**.
 
 - **Slot 25 → `mission251.dte`** on replay: when `DAT_00562DC8 == 0x19` and the replay flag
   `DAT_00587CDC == 1`, the loader swaps in `mission251.dte` (line 86341). **[verified]**
-- **Slot 3 → `mission311.dte`** (line 86343, unconditional) — so **`mission311.dte` is the shipped
-  mission 3** and **`mission3.dte` is a superseded earlier cut** (both are the warp‑gate mission, see
-  below). **[verified load line; cut inferred]**
+- **Slot 3 has two files, one for each way a mission is flown.** `WinMain` (`FUN_004a8b10`) loads
+  a mission on two paths (names below from OpenReliant's Ghidra names).
+  - **The single-player campaign** flies from the ship's rooms (`vr_rooms`, `FUN_00439FB0`: the
+    Reliant's, the Yamato's after mission 18), then the hangar movie and the restart save, and its
+    loop builds `mission%d.dte` (line 86719; the same loop loads `mission251.dte` once mission 25's
+    first part is won). So mission 3 is **`mission3.dte`**: the player is sent through the proto
+    gate (order 26 at `coal_prototypegate`), fights at it, destroys its power core and escapes back
+    through the tunnel. **[load line verified: the loop that runs after the ship's rooms has no
+    mission-3 swap (the main menu's debug shortcut and lobby launches reach it too); that the whole
+    single-player campaign takes it rests on `interface_run`'s return values and user ground-truth]**
+  - **A multiplayer session** that is not a deathmatch map takes the other path. The front end
+    (`interface_run`, `FUN_004289D0`) returns 2, "fly", only from the multiplayer session screens;
+    the other ways in are the Zone launch and a lobby launch; `DAT_00582E8C` (`multiplayer_mission`)
+    is 0, which leaves out the deathmatch maps. There slot 3 loads **`mission311.dte`** (line
+    86343). It still places the proto gate, and its script blows the gate's core (part 20, order 11
+    aimed at `Inner Core01`), but it never sends the player's wing through the gate (no order 25 or
+    26 for the player's group). Most likely co-op. **[load line and the multiplayer entries
+    verified; co-op specifically inferred]**
+
+  Found from user ground-truth (the trip through the gate, played many times, is not in
+  `mission311.dte`'s script). Earlier versions of this page had the two the wrong way round, calling
+  `mission311.dte` the shipped mission 3 and `mission3.dte` superseded.
 - **`mission191` / `mission271`** match `mission19` / `mission27` by content (identical flight‑group
   signatures); they are almost certainly the same kind of variant, but their exact load condition is
   not yet pinned. **[inferred]**
-- **Never loaded (unused):** files **12, 13, 17, 22** don't exist; **`mission3.dte`** appears
-  superseded by `mission311.dte`. Good candidates for an *Unused Content* writeup. **[verified gaps]**
+- **Never loaded (unused):** files **12, 13, 17, 22** don't exist. **[verified gaps]** (Earlier
+  versions listed `mission3.dte` here; it is the single-player mission 3, above.)
 
 ## 4b. Campaign state — the prototype warp gate  [verified content + player account]
 
@@ -116,8 +135,9 @@ extra **"gatecrasher" / warp‑attack** raids to punish the player. Confirmed in
 - (Game 13's warp strings are routine warp‑*travel*, not the raid.)
 
 This is the clearest case of the persistent‑consequence design: the surviving‑gate state is a
-campaign global the later missions read. `mission3.dte` vs `mission311.dte` are two cuts of this
-mission (`311` ships). *(Mechanic from the player's account; the `PROTOGATE`/`gatecrasher`/`Warp
+campaign global the later missions read. `mission3.dte` is this mission in the single-player
+campaign; `mission311.dte`, flown in a multiplayer session (most likely co-op), never sends the
+player through the gate (§4). *(Mechanic from the player's account; the `PROTOGATE`/`gatecrasher`/`Warp
 attack` strings are [verified] in the decoded `.dte`.)*
 
 ## 5. Tables for future work  [verified addresses]
@@ -139,8 +159,9 @@ Indexed by mission number `DAT_00562DC8`:
 
 - Resolve the **official mission titles** by following `DAT_004E5C78[mission]` → `FUN_00491030` →
   the string resource (the names aren't plain strings in `.text`).
-- Pin the exact **load conditions** for `mission191` / `mission271`, and which of
-  `mission3`/`mission311` the normal flow uses.
+- Pin the exact **load conditions** for `mission191` / `mission271`. (Which of
+  `mission3`/`mission311` loads is settled in §4: the single-player campaign, and a multiplayer
+  session that is not a deathmatch map. Whether that is only co-op is still open.)
 - Confirm **chapter/tour boundaries** against `new_chapter1..6.bik` triggers (the Reliant/Yamato
   split sits at the game‑15 hand‑off).
 
