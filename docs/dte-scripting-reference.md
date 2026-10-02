@@ -486,6 +486,37 @@ not listed take no parameters). Spelling, casing and copy-paste leftovers are pr
 
 ---
 
+## Patterns the shipped missions follow
+
+What a mission maker can copy from the 44 shipped missions, counted over the unmodded
+`resource.hog` with openreliant's `sltool dte export` (2026-10-02). The leads are **mini**'s
+mission-maker guide in [StarLancerEditor](https://src.ug.gg/mini/starlancereditor)
+(`docs/mission-maker-guide.md`, MIT). Each was checked against the missions and against
+openreliant's engine, and one did not hold as stated.
+
+- **The jump.** Every campaign mission but 23 has exactly one `PlayerReadyToJump` trigger, and
+  mission 23 has none. In 19 of those 23 it repeats (`always`), and its routine yields with
+  `InterruptTriggerCode` (`0x17`) between the jumps, so each firing runs one leg; missions 8, 16
+  and 21 fire it once, and 11 repeats it without yielding. The arrivals' `JumpedIn` triggers on
+  the player mostly take the same shape. A script brings the jump drive online by setting
+  variable 0, the value the JUMP DRIVE prompt on the display checks (openreliant calls it
+  `jump_ready`).
+- **Landing.** Setting variable 10 (openreliant's `landing_cleared`) is how a script lets the
+  player land; mission 1's script does it on the Reliant's arrival.
+- **Never used.** No shipped mission calls `SetNavPoint` (`0x30`). `WaitForKey` (`0x4C`) appears
+  only in mission 31.
+- **Speech.** `CommsFromShip` is followed by `WaitForMovie` 1,364 times and `CommsFromPilot` 727
+  times; `PlaySpeech`, which opens no comms window, is followed by `WaitForSpeech` 115 times. A
+  plain `Wait` follows now and then.
+- **The player's wing.** A flight group in wing 0 holds six ships in 26 of the 31 such groups.
+  Mission 29 holds one, 99 two and 31 five (29 and 31 are among the simulator's and Instant
+  Action's missions, 29 to 35), and 28 and 271 hold seven, past the wing's six slots
+  (openreliant's `docs/engine/missions.md`, "The wings"). A player's wing of fewer than six
+  therefore does not crash the original by itself, though mini reports a template crashing with
+  fewer than five wingmen. **Unverified:** what crashed it.
+
+---
+
 ## Attribution
 
 The numeric opcode/command/AI/ship/pilot tables and the observed runtime semantics are the

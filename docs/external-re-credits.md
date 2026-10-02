@@ -204,6 +204,15 @@ For completeness, the external efforts credited elsewhere in these docs:
 - **Captain Foster / "Starlancer ME"** — black-box RE of the mission `.DTE`
   format, fused with our decompilation in [`dte-format.md`](dte-format.md) and
   `tools/dte_parse.py`. https://starlancerme.blogspot.com/
+- **mini — StarLancerEditor** (MIT) — .NET libraries and tools for the archive,
+  mission and save formats. Its `.sls` script language is the model for the
+  script-as-rules language of our mission builder, which was written fresh from
+  its grammar rather than translated from its C#. Its mission-maker guide's leads
+  are checked against the shipped missions in
+  [`dte-scripting-reference.md`](dte-scripting-reference.md) ("Patterns the
+  shipped missions follow"). Its `docs/starlancerme-blog/` folder mirrors
+  Captain Foster's blog and files, which stay his.
+  https://src.ug.gg/mini/starlancereditor
 - **DraconPern & KingLord — SLExtract** — the VC6/MFC extractor whose source
   documents the `.HOG`/`BIGF` container. See [`hog-format.md`](hog-format.md).
 - **Mario "HCl" Brito** — SL Tool, LWO2SL and the MilkShape `.SHP` plugins.
