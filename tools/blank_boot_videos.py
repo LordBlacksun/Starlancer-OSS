@@ -14,9 +14,11 @@ of them). By default this blanks the three branding logos:
 
 and, with --include-splash, the animated splash->main-menu transition, "splash to mm.bik".
 
-Each is cut to its own first frame (first_frame_bik): a real one-frame Bink movie, over
-in a fifteenth of a second, that every Bink reader plays, the original's and openreliant's
-alike. The first original is kept beside it as <name>.orig, and `restore` moves it back.
+Each becomes the same silent black frame (black_clip): the flat first frame a logo fades in
+from, cut out as a one-frame Bink movie with no sound, over in a fifteenth of a second, that
+every Bink reader plays, the original's and openreliant's alike. (Microsoft's own first frame
+is its logo, so the clip comes from Warthog's or Digital Anvil's.) The original is renamed
+<name>.orig, so its other hard links keep it, and `restore` moves it back.
 (This tool once rewrote HOGs, on the belief that the logos lived in one, and wrote a
 zero-frame stub the original was only inferred to tolerate and openreliant cannot play.
 Both are gone. Logo<->filename mapping is by static inference: warty_=Warthog,
@@ -36,7 +38,6 @@ Notes:
 """
 import argparse
 import os
-import shutil
 import stat
 import struct
 import sys
@@ -86,22 +87,28 @@ def _zero_frame_stub(version_byte=b"i"):
     return bytes(out)
 
 
-def _synthetic_bik(frames, audio=b"\x08\x00\x00\x00\xAA"):
+def _synthetic_bik(frames, audio=b"\x08\x00\x00\x00\xAA", picture=1):
     """A movie of `frames` frames, 8x6 at 15 a second, one mono track, each frame's video its
-    number: the layout of openreliant's `bink.testing.movie`, plus the standard end entry."""
+    number (`picture` bytes of it in frame 0, as a logo's first picture would fill): the layout
+    of openreliant's `bink.testing.movie`, plus the standard end entry."""
     index_at = 0x2C + 4 + 4 + 4
-    frame_size = (4 + len(audio) + 1 + 3) & ~3
+    bodies = []
+    for n in range(frames):
+        body = struct.pack("<I", len(audio)) + audio + bytes([n]) * (picture if n == 0 else 1)
+        bodies.append(body + b"\x00" * (-len(body) % 4))
     first = index_at + (frames + 1) * 4
-    size = first + frames * frame_size
+    size = first + sum(len(b) for b in bodies)
     out = bytearray(b"BIKf")
-    out += struct.pack("<IIIIIIIIII", size - 8, frames, frame_size, frames, 8, 6, 15, 1, 0, 1)
+    out += struct.pack("<IIIIIIIIII", size - 8, frames, max(len(b) for b in bodies), frames,
+                       8, 6, 15, 1, 0, 1)
     out += struct.pack("<IHHI", 0, 22050, 0x4000, 0)
-    for n in range(frames):
-        out += struct.pack("<I", (first + n * frame_size) | (n == 0))
+    at = first
+    for n, body in enumerate(bodies):
+        out += struct.pack("<I", at | (n == 0))
+        at += len(body)
     out += struct.pack("<I", size)
-    for n in range(frames):
-        body = struct.pack("<I", len(audio)) + audio + bytes([n])
-        out += body + b"\x00" * (frame_size - len(body))
+    for body in bodies:
+        out += body
     return bytes(out)
 
 
@@ -165,6 +172,24 @@ def selftest():
             except ValueError:
                 check(True, "a source with %s is refused" % why)
 
+    # --- a blank shows nothing and sounds nothing ---
+    silent, black = globals().get("silent_first_frame"), globals().get("black_clip")
+    check(silent is not None and black is not None, "silent_first_frame and black_clip exist")
+    flat = _synthetic_bik(3)                   # frame 0's picture: a byte, one colour
+    logo = _synthetic_bik(3, picture=4096)     # frame 0's picture: a real logo's worth
+    if silent is not None:
+        quiet = silent(logo)
+        check(_reader_accepts(quiet), "a silent first frame passes openreliant's reader checks")
+        check(struct.unpack_from("<I", quiet, 0x28)[0] == 0, "a silent first frame has no audio track")
+        check(struct.unpack_from("<I", quiet, 8)[0] == 1, "a silent first frame has one frame")
+        s0, s1 = struct.unpack_from("<II", logo, 0x2C + 12)   # frame 0: 4 + 5 bytes of audio, then
+        check(quiet[0x2C + 8:] == logo[(s0 & ~1) + 4 + 5:s1 & ~1],   # its picture, padding included
+              "a silent first frame keeps frame 0's picture and nothing else")
+    if black is not None and silent is not None:
+        check(black([logo, flat]) == silent(flat),
+              "the black clip is the flat first frame among the logos, silent")
+        check(black([logo]) is None, "no flat first frame among them: no black clip")
+
     # --- the command line: the startup movies are loose files in the game folder ---
     import io
     import shutil
@@ -185,28 +210,50 @@ def selftest():
     root = tempfile.mkdtemp(prefix="bootvid_test_")
     try:
         game = os.path.join(root, "game")
+        twins = os.path.join(root, "testbed")      # a second folder of hard links to the game's
         os.mkdir(game)
-        movie = _synthetic_bik(3)
-        for name in ("WARTY_.BIK", "new_dalogo_fs_uncmpr.bik", "new_nms.bik", "splash to mm.bik"):
+        os.mkdir(twins)
+        movie = _synthetic_bik(3)                  # its first frame flat, as Warthog's is
+        logo = _synthetic_bik(3, picture=4096)     # its first frame a picture, as Microsoft's is
+        for name, data in (("WARTY_.BIK", movie), ("new_dalogo_fs_uncmpr.bik", movie),
+                           ("new_nms.bik", logo), ("splash to mm.bik", movie)):
             with open(os.path.join(game, name), "wb") as f:
-                f.write(movie)
+                f.write(data)
+        os.link(os.path.join(game, "new_nms.bik"), os.path.join(twins, "new_nms.bik"))
+        os.chmod(os.path.join(game, "new_dalogo_fs_uncmpr.bik"), stat.S_IREAD)   # off a CD
 
-        def read(name):
-            with open(os.path.join(game, name), "rb") as f:
+        def read(name, folder=game):
+            with open(os.path.join(folder, name), "rb") as f:
                 return f.read()
 
+        silent_of = globals().get("silent_first_frame") or (lambda m: None)
         code, text = run("blank", game)
         check(code == 0, "blank <game folder> succeeds")
-        check(read("WARTY_.BIK") == first_frame_bik(movie) and read("new_nms.bik") != movie,
-              "blank <game folder> cuts each loose logo to its first frame")
+        blank = silent_of(movie)
+        check(read("WARTY_.BIK") == blank and read("new_nms.bik") == blank,
+              "blank <game folder> gives every logo the same silent flat frame, the picture's too")
+        check(read("new_dalogo_fs_uncmpr.bik") == blank, "a read-only logo (copied off a CD) is blanked")
+        check(read("new_nms.bik", twins) == logo,
+              "blank leaves another hard link to an original as it was (red-oath's testbed)")
         check(read("splash to mm.bik") == movie, "the splash is left alone unless asked for")
         run("blank", game, "--include-splash")
         check(read("splash to mm.bik") != movie, "--include-splash blanks it too")
         code, text = run("restore", game)
-        check(code == 0 and read("WARTY_.BIK") == movie and read("splash to mm.bik") == movie,
-              "restore <game folder> puts every original back")
+        check(code == 0 and read("WARTY_.BIK") == movie and read("splash to mm.bik") == movie
+              and read("new_nms.bik") == logo, "restore <game folder> puts every original back")
+        check(os.path.samefile(os.path.join(game, "new_nms.bik"), os.path.join(twins, "new_nms.bik")),
+              "restore puts back the original itself, its other hard links still joined to it")
         check(not [f for f in os.listdir(game) if f.lower().endswith(".orig")],
               "restore moves the originals back, leaving no .orig to read as 'blanked'")
+
+        # No flat first frame among the logos: each becomes its own first frame, silent.
+        alone = os.path.join(root, "pictures")
+        os.mkdir(alone)
+        with open(os.path.join(alone, "new_nms.bik"), "wb") as f:
+            f.write(logo)
+        run("blank", alone)
+        check(read("new_nms.bik", alone) == silent_of(logo),
+              "with no flat first frame anywhere, a logo becomes its own first frame, silent")
 
         hog = os.path.join(root, "CD2.HOG")
         with open(hog, "wb") as f:
@@ -259,6 +306,53 @@ def first_frame_bik(original):
     return bytes(out)
 
 
+FLAT_PICTURE = 2048
+"""The most bytes a first frame's picture may take to count as flat, one colour. A 640x480 key
+frame of one colour takes about 220; a picture, tens of thousands. The retail logos' first frames:
+Warthog's 220 and Digital Anvil's 224, both black (decoded 2026-10-06), and Microsoft's 48,544,
+its logo."""
+
+
+def first_picture(bik):
+    """The bytes of frame 0's picture: its packet, after the packet of each audio track. Raises
+    ValueError for a file that is not a Bink movie or has no frames."""
+    clip = first_frame_bik(bik)
+    tracks = struct.unpack_from("<I", clip, 0x28)[0]
+    at = (struct.unpack_from("<I", clip, 0x2C + tracks * 12)[0] & ~1)
+    for _ in range(tracks):
+        at += 4 + struct.unpack_from("<I", clip, at)[0]
+    if at > len(clip):
+        raise ValueError("frame 0's audio runs past the file")
+    return clip[at:]
+
+
+def silent_first_frame(original):
+    """`original` cut to its first frame with no sound: first_frame_bik's clip with its audio
+    tracks, their tables and their packets left out. A movie without audio tracks is as valid to
+    the original's player as to openreliant's, which opens a sound only where a movie has one."""
+    picture = first_picture(original)
+    first = 0x2C + 8
+    out = bytearray(original[:0x28]) + struct.pack("<III", 0, first | 1, first + len(picture))
+    out += picture
+    struct.pack_into("<IIII", out, 4, len(out) - 8, 1, len(picture), 1)
+    return bytes(out)
+
+
+def black_clip(movies):
+    """The clip every logo is blanked with: the flattest first frame among `movies`, silent, if it
+    is flat (FLAT_PICTURE), the black the logos fade in from. None where none is, or none is a
+    movie. A logo whose own first frame is a picture (Microsoft's) so shows nothing either."""
+    flat = []
+    for movie in movies:
+        try:
+            picture = first_picture(movie)
+        except ValueError:
+            continue
+        if len(picture) <= FLAT_PICTURE:
+            flat.append((len(picture), movie))
+    return silent_first_frame(min(flat)[1]) if flat else None
+
+
 def _writable(path):
     """Clear a file's read-only flag, which files copied off a CD keep. Best effort: if it
     cannot be cleared, the write that follows raises the PermissionError that says why."""
@@ -271,34 +365,40 @@ def _writable(path):
 def blank_folder(folder, names, bundled=None):
     """Blank each of `names`, matched case-insensitively, in `folder`. -> (blanked, skipped).
 
-    The first original is kept as <file>.orig and never overwritten, and the blank clip is
-    made from it, never from a file already blanked: `bundled`, a real black clip when one
-    is supplied, or else the original cut to its first frame (first_frame_bik). So
-    re-blanking also repairs a folder left with the old zero-frame stub. A file that is not
-    a Bink movie is left alone and named in `skipped`, with the reason.
+    The first original is renamed to <file>.orig and never overwritten, and the blank is written
+    as a new file: an install of hard links (red-oath's testbed shares Carlo's) keeps the
+    original in every other folder. The blank is made from the originals, never from a file
+    already blanked: `bundled`, a real black clip when one is supplied; else black_clip, the
+    flat first frame among them, silent, for every logo; else, with none flat, each original's
+    own first frame, silent (silent_first_frame). So re-blanking also repairs a folder an
+    earlier version left. A file that is not a Bink movie is left alone and named in `skipped`,
+    with the reason.
     """
     by_lower = {f.lower(): f for f in os.listdir(folder)}
-    blanked, skipped = [], []
+    found = []
     for name in names:
         actual = by_lower.get(name.lower())
-        if not actual:
-            continue
-        full = os.path.join(folder, actual)
-        orig = full + ".orig"
-        with open(orig if os.path.exists(orig) else full, "rb") as f:
-            original = f.read()
+        if actual:
+            full = os.path.join(folder, actual)
+            with open(full + ".orig" if os.path.exists(full + ".orig") else full, "rb") as f:
+                found.append((actual, full, f.read()))
+    black = bundled if bundled is not None else black_clip([o for _, _, o in found])
+    blanked, skipped = [], []
+    for actual, full, original in found:
         try:
             if original[:3] != b"BIK":
                 raise ValueError("not a Bink movie")
-            blob = bundled if bundled is not None else first_frame_bik(original)
+            blob = black if black is not None else silent_first_frame(original)
         except ValueError as e:
             skipped.append("%s: %s" % (actual, e))
             continue
-        if not os.path.exists(orig):
-            shutil.copyfile(full, orig)
-        _writable(full)
-        with open(full, "wb") as f:
+        with open(full + ".new", "wb") as f:
             f.write(blob)
+        if os.path.exists(full + ".orig"):
+            _writable(full)
+        else:
+            os.replace(full, full + ".orig")
+        os.replace(full + ".new", full)
         blanked.append(actual)
     return blanked, skipped
 
@@ -372,7 +472,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("list", help="the startup movies in the game folder, and whether blanked")
     p.add_argument("folder"); p.set_defaults(fn=cmd_list)
-    p = sub.add_parser("blank", help="cut the 3 startup logos in the game folder to their first frames")
+    p = sub.add_parser("blank", help="make the 3 startup logos in the game folder a silent black frame")
     p.add_argument("folder")
     p.add_argument("--include-splash", action="store_true", help='also blank "splash to mm.bik"')
     p.add_argument("--blank", help="use this .bik as the replacement (e.g. a real black clip)")

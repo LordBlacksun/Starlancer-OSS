@@ -248,7 +248,7 @@ tools and research we build on, with thanks:
   [`docs/external-re-credits.md`](docs/external-re-credits.md) §6.
 - **esc0rtd3w** — the *blank-intro-videos* project, whose black `blank.bik` the Studio build bundles
   as its boot-video placeholder when a copy is placed in `tools/assets/` (the clip is not part of this
-  repo; without it the Studio cuts each logo to its own first frame with
+  repo; without it the Studio gives the logos a silent black frame of their own with
   [`blank_boot_videos.py`](tools/blank_boot_videos.py)). <https://github.com/esc0rtd3w/blank-intro-videos/>
 - The **game content reference** ([`docs/game-reference/`](docs/game-reference/)) is compiled from the
   community **[Starlancer Wiki on Fandom](https://starlancer.fandom.com/)** under

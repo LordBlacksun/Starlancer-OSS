@@ -807,13 +807,13 @@ def selftest():
             check(done == ["WARTY_.BIK"] and skipped == [],
                   "logos: the present logo is blanked, the absent one passed over quietly")
             check(open(warty + ".orig", "rb").read() == movie, "logos: the true original is kept as .orig")
-            check(open(warty, "rb").read() == bootvid.first_frame_bik(movie),
-                  "logos: without a bundled clip, the logo becomes its own first frame")
+            check(open(warty, "rb").read() == bootvid.silent_first_frame(movie),
+                  "logos: without a bundled clip, the logo becomes its flat first frame, silent")
             # a folder a v1.2 run left with the zero-frame stub is repaired from the .orig
             _mk(warty, b"BIKi" + b"\x00" * 44)
             blank(lg, ["warty_.bik"])
-            check(open(warty, "rb").read() == bootvid.first_frame_bik(movie),
-                  "logos: re-blanking trims the .orig, not the blanked file")
+            check(open(warty, "rb").read() == bootvid.silent_first_frame(movie),
+                  "logos: re-blanking makes the blank from the .orig, not the blanked file")
             check(open(warty + ".orig", "rb").read() == movie, "logos: the .orig is never overwritten")
             blank(lg, ["warty_.bik"], bundled=b"BUNDLED")
             check(open(warty, "rb").read() == b"BUNDLED", "logos: a bundled blank clip is used when given")

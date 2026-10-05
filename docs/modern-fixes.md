@@ -51,9 +51,12 @@ game folder with a blank Bink, keeping backups:
    `new_intro.bik` if you want the splash/intro. To restore a logo, swap its `.orig` back.
 
 **Or with our tool**, which does the same to the same three files, in the game folder. Without a
-`blank.bik` it cuts each logo to its own first frame: a real one-frame Bink, over in a fifteenth of a
-second, that every Bink reader plays, openreliant's included. Starlancer Studio's **Boot Videos**
-section does the same.
+`blank.bik` it gives all three the same silent black frame, cut from the logos' own first frames
+(Warthog's and Digital Anvil's are flat black; Microsoft's is its logo, so it is not used): a real
+one-frame Bink with no audio track, over in a fifteenth of a second, that every Bink reader plays,
+openreliant's included. Each original is renamed `<name>.orig`, so a folder of hard links (a second
+copy of the install that shares its files) keeps the real logos. Starlancer Studio's **Boot
+Videos** section does the same.
 
 ```sh
 python tools/blank_boot_videos.py list    <game folder>                  # the startup movies, blanked or not
