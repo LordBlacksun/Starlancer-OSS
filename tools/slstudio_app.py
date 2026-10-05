@@ -1802,8 +1802,8 @@ def _find_blank_bik():
     """Locate a real black blank.bik (esc0rtd3w's blank-intro-videos clip) IF the user supplied
     one: bundled inside the frozen exe (sys._MEIPASS/assets), or dropped into tools/assets/ for
     source runs. The clip is third-party and never ships in this repo (*.bik is git-ignored), so on
-    a fresh clone this returns None and each logo is cut to its own first frame instead
-    (blank_boot_videos.first_frame_bik). Either way the Boot Videos log says which is in use."""
+    a fresh clone this returns None and the logos get a silent black frame of their own instead
+    (blank_boot_videos.black_clip). Either way the Boot Videos log says which is in use."""
     here = os.path.dirname(os.path.abspath(__file__))
     for p in (resource_path(os.path.join("assets", "blank.bik")),
               os.path.join(here, "assets", "blank.bik")):
@@ -1814,7 +1814,7 @@ def _find_blank_bik():
 
 def _bundled_blank():
     """The real black blank.bik's bytes when available (the verified method), else None,
-    meaning each clip is cut to its own first frame. -> (bytes|None, label)."""
+    meaning the logos' own black first frame, silent. -> (bytes|None, label)."""
     p = _find_blank_bik()
     if p:
         try:
@@ -1822,7 +1822,7 @@ def _bundled_blank():
                 return f.read(), os.path.basename(p)
         except Exception:
             pass
-    return None, "each clip's own first frame"
+    return None, "the logos' own black first frame, silent"
 
 
 # Retail truth (docs/modern-fixes.md s1, verified 2026-06-12): the three startup logos are LOOSE
@@ -1835,8 +1835,8 @@ LOOSE_SPLASH = list(bootvid.SPLASH_VIDEOS)    # splash to mm.bik
 class BootVideoFrame(Section):
     TITLE = "BOOT VIDEOS"
     SUB = ("Skip the startup branding logos. They are LOOSE .bik files in the game folder, never "
-           "inside a HOG, and are blanked in place: with a black blank.bik if one is bundled, else "
-           "each cut to its own first frame (.orig backups kept either way).")
+           "inside a HOG, and are blanked there: with a black blank.bik if one is bundled, else "
+           "with the logos' own black first frame, silent (.orig backups kept either way).")
     GLYPH = "▷"
 
     def build(self):
@@ -1857,7 +1857,7 @@ class BootVideoFrame(Section):
         self.log = LogPanel(b, height=104)
         self.log.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         bp = _find_blank_bik()
-        self.log.line("blank.bik: " + (bp if bp else "not bundled; each clip becomes its own first frame"),
+        self.log.line("blank.bik: " + (bp if bp else "not bundled; the logos' own black first frame, silent"),
                       "dim")
 
     # ---------------- the loose startup movies in the game folder ----------------

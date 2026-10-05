@@ -174,8 +174,10 @@ the clips resolve to the loose files. **A missing or zero-frame movie reads as t
 `BinkOpen` returns NULL (logged, *not* fatal) or the end-of-video flag is set on frame 0, so the play
 loop exits immediately; any keypress aborts too *(read statically, never observed)*. The blank-Bink
 skip replaces the three loose logo files with a blank (esc0rtd3w's `blank.bik`), or
-`tools/blank_boot_videos.py blank <game folder>` cuts each to its own first frame, a real one-frame
-movie that needs no such tolerance. No startup movie is HOG-resident. (Logo verification 2026-06-12;
+`tools/blank_boot_videos.py blank <game folder>` gives all three the same silent black frame, cut
+from a logo's own first frame (Warthog's and Digital Anvil's are flat black; Microsoft's is its
+logo), a real one-frame movie with no audio track that needs no such tolerance. No startup movie
+is HOG-resident. (Logo verification 2026-06-12;
 every retail HOG rechecked 2026-09-29.) See [`modern-fixes.md`](modern-fixes.md) §1.
 
 ## 7. Input — DirectInput + force feedback

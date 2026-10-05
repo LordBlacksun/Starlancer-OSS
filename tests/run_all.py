@@ -43,7 +43,7 @@ CHECKS = [
     # here touched the app at all and the Linux CI leg covered none of it.
     ("studio core self-test (headless)",
      [sys.executable, os.path.join("tools", "slstudio_core.py"), "selftest"]),
-    # A logo is replaced by its own first frame, a movie every Bink reader plays,
+    # A logo is replaced by a silent black frame, a movie every Bink reader plays,
     # checked against openreliant's reader rules on synthetic movies.
     ("boot-video blanker self-test (synthetic movies)",
      [sys.executable, os.path.join("tools", "blank_boot_videos.py"), "--selftest"]),
