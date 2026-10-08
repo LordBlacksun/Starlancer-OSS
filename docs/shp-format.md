@@ -414,12 +414,30 @@ class 4 (`FUN_00471470`, `explode.cpp` — spawns an effect per entry, `FUN_004C
 
 `4 × i32` **vertex indices into LOD 0** (`[3] = −1` for a triangle) [verified: the loader copies
 `mesh0.vertices[idx]` into `+0x14…+0x40`, sets `+0x10` = 3 or 4, computes the normal at `+0x44`
-and the plane constant at `+0x50`]. Consumer `FUN_00465380` [verified]: for the player's object,
-when the signed distance to the plane changes sign and the point lies inside the polygon
-(`FUN_004AD700`), it fires mission trigger `0x1C` **TT_INSIDE_OBJECT** or `0x1D`
-**TT_OUTSIDE_OBJECT** (`FUN_0045B7C0`; enum per [`dte-format.md`](dte-format.md)). Only
-`stalag.SHP` ships any: one quad on part 6 `"Stalag Duct"` (vertices 13, 12, 15, 14) and one on
-part 10 `"Stalag Outer"` (215, 216, 217, 218).
+and the plane constant at `+0x50`]. Consumer `FUN_00465380` (`collision_test_hull`) [verified],
+for the player's object only (`0x0046539D`):
+
+1. It takes the ship's step, from where it is now to where it will be next, in the part's frame,
+   and the signed distance of each end from the plane. Nothing happens unless the sign changes.
+2. It tests the step against the triangle (c0, c1, c2) with `FUN_004AD700`
+   (`segment_meets_triangle`, called at `0x004654F5`). For a quad that misses, it tests the
+   second triangle (c0, c2, c3) (`0x0046552B`).
+3. On a hit it posts event `0x1C` **TT_INSIDE_OBJECT** or `0x1D` **TT_OUTSIDE_OBJECT**
+   (`FUN_0045B7C0`, `event_post`, at `0x00465581`; enum per [`dte-format.md`](dte-format.md)),
+   by the sign of one end's distance. OpenReliant (#854) reads it as InsideObject for a step that
+   goes to the plane's back. For a Stalag (object type `0x45`) it also sets `0x005883F8`
+   (`in_stalag`): 1 going in, 0 coming out.
+
+**A quirk of the original, found by OpenReliant's maintainer** (vdmkenny, on OpenReliant #11,
+2026-10-08): for a **triangle** the event is posted on any crossing of the plane, even outside the
+triangle. When the first test misses, `cmp [polygon + 0x10], 4` / `jne` at `0x0046550C` and
+`0x00465510` jumps to the posting code for anything that is not a quad, instead of past it. No
+shipped polygon is a triangle, so it never shows. OpenReliant posts only through the triangle.
+
+Only `stalag.SHP` ships any: one quad on part 6 `"Stalag Duct"` (vertices 13, 12, 15, 14) and one
+on part 10 `"Stalag Outer"` (215, 216, 217, 218). *(Corrected 2026-10-08: this section used to say
+the test is "the point lies inside the polygon"; it is the step, as above. The same correction was
+posted on OpenReliant #11 on 2026-10-07.)*
 
 ### 5.13 Tail record (tag `0x10`; struct `0x4C`; file 12 / 76)
 
